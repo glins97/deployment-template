@@ -68,18 +68,19 @@ jobs:
         id: config
         run: |
           ENV="${{ needs.determine-environment.outputs.environment }}"
-          PROJECT_NAME=$(jq -r '.project.name' config.json)
-          AWS_REGION=$(jq -r '.aws.region' config.json)
+          # Extract values using basic shell parsing (no jq dependency)
+          PROJECT_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+          AWS_REGION=$(grep -o '"region"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
           
           if [ "$ENV" = "prd" ]; then
-            FRONTEND_DOMAIN=$(jq -r '.infrastructure.frontend.domain.prd' config.json)
-            BACKEND_DOMAIN=$(jq -r '.infrastructure.backend.domain.prd' config.json)
+            FRONTEND_DOMAIN=$(grep -A 10 '"frontend"' config.json | grep -A 5 '"domain"' | grep '"prd"' | sed 's/.*"prd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            BACKEND_DOMAIN=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep '"prd"' | sed 's/.*"prd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            INSTANCE_TYPE=$(grep -A 15 '"backend"' config.json | grep -A 5 '"instance_type"' | grep '"prd"' | sed 's/.*"prd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
           else
-            FRONTEND_DOMAIN=$(jq -r ".infrastructure.frontend.domain.$ENV" config.json)
-            BACKEND_DOMAIN=$(jq -r ".infrastructure.backend.domain.$ENV" config.json)
+            FRONTEND_DOMAIN=$(grep -A 10 '"frontend"' config.json | grep -A 5 '"domain"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
+            BACKEND_DOMAIN=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
+            INSTANCE_TYPE=$(grep -A 15 '"backend"' config.json | grep -A 5 '"instance_type"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
           fi
-          
-          INSTANCE_TYPE=$(jq -r ".infrastructure.backend.instance_type.$ENV" config.json)
           
           echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
           echo "frontend_domain=$FRONTEND_DOMAIN" >> $GITHUB_OUTPUT

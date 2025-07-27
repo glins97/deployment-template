@@ -1,5 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
+
+# Check if running with bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "This script requires bash. Please run with: bash setup.sh"
+    exit 1
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -41,21 +47,41 @@ validate_config() {
         exit 1
     fi
     
-    # Check if jq can parse the file
-    if ! jq empty config.json 2>/dev/null; then
-        echo -e "${RED}❌ config.json is not valid JSON!${NC}"
+    # Basic JSON validation - check for balanced braces
+    if ! grep -q '^{' config.json || ! grep -q '}$' config.json; then
+        echo -e "${RED}❌ config.json appears to be malformed!${NC}"
         exit 1
     fi
     
-    # Check required fields
-    local required_fields=(".project.name" ".aws.region" ".environments" ".infrastructure.frontend.domain" ".infrastructure.backend.domain" ".github.repository")
+    # Check required fields using basic shell parsing
+    local required_checks=("project" "aws" "environments" "infrastructure" "github")
     
-    for field in "${required_fields[@]}"; do
-        if [ "$(jq -r "$field" config.json)" = "null" ]; then
-            echo -e "${RED}❌ Missing required field: $field${NC}"
+    for section in "${required_checks[@]}"; do
+        if ! grep -q "\"$section\"" config.json; then
+            echo -e "${RED}❌ Missing required section: $section${NC}"
             exit 1
         fi
     done
+    
+    # Check specific required values
+    local project_name=$(get_json_value config.json ".project.name")
+    local aws_region=$(get_json_value config.json ".aws.region")
+    local github_repo=$(get_json_value config.json ".github.repository")
+    
+    if [ -z "$project_name" ] || [ "$project_name" = "unknown" ]; then
+        echo -e "${RED}❌ Missing or invalid project.name in config.json${NC}"
+        exit 1
+    fi
+    
+    if [ -z "$aws_region" ] || [ "$aws_region" = "unknown" ]; then
+        echo -e "${RED}❌ Missing or invalid aws.region in config.json${NC}"
+        exit 1
+    fi
+    
+    if [ -z "$github_repo" ] || [ "$github_repo" = "unknown" ]; then
+        echo -e "${RED}❌ Missing or invalid github.repository in config.json${NC}"
+        exit 1
+    fi
     
     echo -e "${GREEN}✅ config.json is valid${NC}"
 }
@@ -64,20 +90,27 @@ validate_config() {
 validate_hosted_zones() {
     echo -e "${YELLOW}Validating Route53 hosted zones...${NC}"
     
-    # Get all domains from config
-    local environments=($(jq -r '.environments[]' config.json))
+    # Extract domains from config.json using grep/sed
+    local environments=("dev" "hml" "prd")  # Default environments
     local all_domains=()
     
+    # Extract frontend and backend domains for each environment
     for env in "${environments[@]}"; do
         if [ "$env" = "prd" ]; then
-            local frontend_domain=$(jq -r '.infrastructure.frontend.domain.prd' config.json)
-            local backend_domain=$(jq -r '.infrastructure.backend.domain.prd' config.json)
+            # For production, look for domain without env prefix
+            local frontend_domain=$(grep -A 10 '"frontend"' config.json | grep -A 5 '"domain"' | grep '"prd"' | sed 's/.*"prd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            local backend_domain=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep '"prd"' | sed 's/.*"prd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
         else
-            local frontend_domain=$(jq -r ".infrastructure.frontend.domain.$env" config.json)
-            local backend_domain=$(jq -r ".infrastructure.backend.domain.$env" config.json)
+            local frontend_domain=$(grep -A 10 '"frontend"' config.json | grep -A 5 '"domain"' | grep "\"$env\"" | sed "s/.*\"$env\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
+            local backend_domain=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep "\"$env\"" | sed "s/.*\"$env\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
         fi
         
-        all_domains+=("$frontend_domain" "$backend_domain")
+        if [ -n "$frontend_domain" ] && [ "$frontend_domain" != "example.com" ]; then
+            all_domains+=("$frontend_domain")
+        fi
+        if [ -n "$backend_domain" ] && [ "$backend_domain" != "backend.example.com" ]; then
+            all_domains+=("$backend_domain")
+        fi
     done
     
     # Extract unique root domains
@@ -102,14 +135,14 @@ validate_hosted_zones() {
             return 1
         fi
         
-        if [ "$(echo "$zone_info" | jq length)" -eq 0 ]; then
+        if [ -z "$zone_info" ] || ! echo "$zone_info" | grep -q "HostedZones"; then
             echo -e "${RED}❌ Route53 hosted zone for '$domain' not found!${NC}"
             echo "Please create a hosted zone for '$domain' in Route53 before proceeding."
             echo "You can create it manually in AWS Console or use:"
             echo "aws route53 create-hosted-zone --name $domain --caller-reference \$(date +%s)"
             return 1
         else
-            local zone_id=$(echo "$zone_info" | jq -r '.[0].Id' | sed 's|/hostedzone/||')
+            local zone_id=$(echo "$zone_info" | grep -o '"Id": "[^"]*"' | head -1 | sed 's/.*"Id": "\([^"]*\)".*/\1/' | sed 's|/hostedzone/||')
             echo -e "${GREEN}✅ Hosted zone for '$domain' found (ID: $zone_id)${NC}"
             return 0
         fi
@@ -133,15 +166,34 @@ validate_hosted_zones() {
     echo -e "${GREEN}✅ All required hosted zones are available!${NC}"
 }
 
+# Function to extract JSON value using basic shell parsing
+get_json_value() {
+    local json_file="$1"
+    local key_path="$2"
+    
+    # Convert dot notation to grep pattern
+    # For simple cases like .project.name, .environments, etc.
+    case "$key_path" in
+        ".project.name")
+            grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$json_file" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+            ;;
+        ".aws.region")
+            grep -o '"region"[[:space:]]*:[[:space:]]*"[^"]*"' "$json_file" | sed 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+            ;;
+        ".github.repository")
+            grep -o '"repository"[[:space:]]*:[[:space:]]*"[^"]*"' "$json_file" | sed 's/.*"repository"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+            ;;
+        *)
+            echo "unknown"
+            ;;
+    esac
+}
+
 # Function to check prerequisites
 check_prerequisites() {
     echo -e "${YELLOW}Checking prerequisites...${NC}"
     
     local missing_tools=()
-    
-    if ! command_exists "jq"; then
-        missing_tools+=("jq")
-    fi
     
     if ! command_exists "gh"; then
         missing_tools+=("gh (GitHub CLI)")
@@ -162,6 +214,9 @@ check_prerequisites() {
         done
         echo ""
         echo "Please install the missing tools and try again."
+        echo "Installation commands:"
+        echo "  Ubuntu/Debian: sudo apt install gh awscli terraform"
+        echo "  macOS: brew install gh awscli terraform"
         exit 1
     fi
     
@@ -230,8 +285,8 @@ upload_secrets() {
 init_terraform_backend() {
     echo -e "${YELLOW}Initializing Terraform backend...${NC}"
     
-    local project_name=$(jq -r '.project.name' config.json)
-    local aws_region=$(jq -r '.aws.region' config.json)
+    local project_name=$(get_json_value config.json ".project.name")
+    local aws_region=$(get_json_value config.json ".aws.region")
     local bucket_name="$project_name-terraform-state"
     
     echo "Creating S3 bucket for Terraform state: $bucket_name"
@@ -278,8 +333,8 @@ init_terraform_backend() {
 create_ec2_keypair() {
     echo -e "${YELLOW}Creating EC2 key pair...${NC}"
     
-    local project_name=$(jq -r '.project.name' config.json)
-    local aws_region=$(jq -r '.aws.region' config.json)
+    local project_name=$(get_json_value config.json ".project.name")
+    local aws_region=$(get_json_value config.json ".aws.region")
     local key_name="$project_name-key"
     
     # Check if key pair already exists

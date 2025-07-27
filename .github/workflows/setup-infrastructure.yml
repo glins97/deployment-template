@@ -29,7 +29,7 @@ jobs:
 
       - name: Create Terraform state bucket
         run: |
-          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          PROJECT_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
           BUCKET_NAME="$PROJECT_NAME-terraform-state"
           
           # Create S3 bucket for Terraform state
@@ -82,7 +82,7 @@ jobs:
 
       - name: Create EC2 Key Pair
         run: |
-          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          PROJECT_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
           KEY_NAME="$PROJECT_NAME-key"
           
           # Create key pair

@@ -34,8 +34,9 @@ if [ ! -f "config.json" ]; then
     exit 1
 fi
 
-REPOSITORY=$(jq -r '.github.repository' config.json)
-ENVIRONMENTS=($(jq -r '.environments[]' config.json))
+# Extract values using basic shell parsing
+REPOSITORY=$(grep -o '"repository"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"repository"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+ENVIRONMENTS=("dev" "hml" "prd")  # Default environments
 
 echo -e "${GREEN}Setting up GitHub secrets from .env file${NC}"
 echo "Repository: $REPOSITORY"

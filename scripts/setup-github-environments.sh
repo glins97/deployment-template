@@ -27,9 +27,10 @@ if [ ! -f "config.json" ]; then
     exit 1
 fi
 
-PROJECT_NAME=$(jq -r '.project.name' config.json)
-REPOSITORY=$(jq -r '.github.repository' config.json)
-ENVIRONMENTS=($(jq -r '.environments[]' config.json))
+# Extract values using basic shell parsing
+PROJECT_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+REPOSITORY=$(grep -o '"repository"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"repository"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+ENVIRONMENTS=("dev" "hml" "prd")  # Default environments
 
 echo -e "${GREEN}Setting up GitHub environments for $PROJECT_NAME${NC}"
 echo "Repository: $REPOSITORY"
