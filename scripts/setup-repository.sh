@@ -296,24 +296,245 @@ setup_env_file() {
 setup_github_environments() {
     echo -e "${YELLOW}Setting up GitHub environments...${NC}"
     
-    if [ -f "scripts/setup-github-environments.sh" ]; then
-        ./scripts/setup-github-environments.sh
-    else
-        echo -e "${RED}❌ setup-github-environments.sh script not found${NC}"
-        exit 1
-    fi
+    # Extract values from config.json
+    local project_name=$(get_json_value config.json ".project.name")
+    local repository=$(get_json_value config.json ".github.repository")
+    local environments=("dev" "hml" "prd")
+    
+    echo -e "${GREEN}Setting up GitHub environments for $project_name${NC}"
+    echo "Repository: $repository"
+    echo "Environments: ${environments[*]}"
+    echo -e "${GREEN}Starting GitHub environment setup...${NC}"
+    
+    # Function to create environment
+    create_environment() {
+        local env_name=$1
+        echo -e "${YELLOW}Creating environment: $env_name${NC}"
+        
+        # Create environment
+        gh api repos/$repository/environments/$env_name -X PUT --silent || {
+            echo -e "${GREEN}Environment $env_name already exists or created successfully${NC}"
+        }
+        
+        # Set environment protection rules for production
+        if [ "$env_name" = "prd" ]; then
+            echo "Setting protection rules for production environment..."
+            # Create a temporary JSON file for the protection rules
+            cat > /tmp/protection_rules.json << EOF
+{
+  "wait_timer": 0,
+  "prevent_self_review": false,
+  "reviewers": [],
+  "deployment_branch_policy": {
+    "protected_branches": true,
+    "custom_branch_policies": false
+  }
+}
+EOF
+            gh api repos/$repository/environments/$env_name -X PUT \
+                --input /tmp/protection_rules.json \
+                --silent 2>/dev/null && echo "✅ Protection rules configured" || echo "⚠️ Protection rules configuration skipped"
+            rm -f /tmp/protection_rules.json
+        fi
+    }
+    
+    # Function to add secrets to environment
+    add_environment_secrets() {
+        local env_name=$1
+        echo -e "${YELLOW}Adding secrets to environment: $env_name${NC}"
+        
+        # Read .env file if it exists
+        if [ -f ".env" ]; then
+            while IFS='=' read -r key value; do
+                # Skip empty lines and comments
+                [[ -z "$key" || "$key" =~ ^#.*$ ]] && continue
+                
+                # Remove quotes from value if present
+                value=$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')
+                
+                echo "Adding secret: $key"
+                echo "$value" | gh secret set "$key" --env "$env_name"
+            done < .env
+        fi
+    }
+    
+    # Create environments and add secrets
+    for env in "${environments[@]}"; do
+        create_environment "$env"
+        add_environment_secrets "$env"
+        echo ""
+    done
+    
+    echo -e "${GREEN}✅ GitHub environments setup completed!${NC}"
+    echo ""
+    echo "Next steps:"
+    echo "1. Review the created environments in your GitHub repository settings"
+    echo "2. Add any missing secrets manually if needed"
+    echo "3. Configure branch protection rules if desired"
+    echo "4. Run the setup-infrastructure workflow to create AWS resources"
 }
 
 # Function to upload secrets
 upload_secrets() {
     echo -e "${YELLOW}Uploading secrets to GitHub...${NC}"
     
-    if [ -f "scripts/env-to-secrets.sh" ]; then
-        ./scripts/env-to-secrets.sh
-    else
-        echo -e "${RED}❌ env-to-secrets.sh script not found${NC}"
-        exit 1
+    # Check if GitHub CLI supports variables (newer versions)
+    local supports_variables=false
+    if gh variable --help &> /dev/null; then
+        supports_variables=true
     fi
+    
+    if [ "$supports_variables" = false ]; then
+        echo -e "${YELLOW}Your GitHub CLI version doesn't support variables.${NC}"
+        echo -e "${YELLOW}All variables will be stored as secrets instead.${NC}"
+        echo ""
+    fi
+    
+    # Check if .env file exists
+    if [ ! -f ".env" ]; then
+        echo -e "${RED}.env file not found!${NC}"
+        echo "Please create a .env file based on .env.example"
+        return 1
+    fi
+    
+    # Extract values from config.json
+    local repository=$(get_json_value config.json ".github.repository")
+    local environments=("dev" "hml" "prd")
+    
+    echo -e "${GREEN}Setting up GitHub variables and secrets from .env file${NC}"
+    echo "Repository: $repository"
+    echo "Environments: ${environments[*]}"
+    echo ""
+    if [ "$supports_variables" = true ]; then
+        echo -e "${YELLOW}Variables containing 'SECRET', 'KEY', or 'PASSWORD' → GitHub Secrets${NC}"
+        echo -e "${YELLOW}Other variables → GitHub Environment Variables${NC}"
+    else
+        echo -e "${YELLOW}All variables will be stored as GitHub Secrets${NC}"
+    fi
+    echo -e "${YELLOW}Deployment secrets (AWS credentials, EC2 keys) are handled separately.${NC}"
+    echo ""
+    
+    # Function to add secrets to environment
+    add_secrets_to_environment() {
+        local env_name=$1
+        echo -e "${YELLOW}Adding variables to environment: $env_name${NC}"
+        
+        local secrets_added=0
+        local vars_added=0
+        
+        while IFS='=' read -r key value; do
+            # Skip empty lines and comments
+            [[ -z "$key" || "$key" =~ ^#.*$ ]] && continue
+            
+            # Remove quotes from value if present
+            value=$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')
+            
+            # Handle multi-line values (like private keys)
+            if [[ "$value" == *"\\n"* ]]; then
+                value=$(echo -e "$value")
+            fi
+            
+            # Check if variable name contains SECRET, KEY, or PASSWORD (case insensitive) OR if variables are not supported
+            if [[ "$key" =~ [Ss][Ee][Cc][Rr][Ee][Tt] ]] || [[ "$key" =~ [Kk][Ee][Yy] ]] || [[ "$key" =~ [Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd] ]] || [ "$supports_variables" = false ]; then
+                echo "Adding secret: $key"
+                echo "$value" | gh secret set "$key" --env "$env_name"
+                secrets_added=$((secrets_added + 1))
+            else
+                echo "Adding environment variable: $key"
+                echo "$value" | gh variable set "$key" --env "$env_name"
+                vars_added=$((vars_added + 1))
+            fi
+        done < .env
+        
+        if [ "$supports_variables" = true ]; then
+            echo "✅ Added $secrets_added secrets and $vars_added environment variables to $env_name"
+        else
+            echo "✅ Added $secrets_added secrets to $env_name"
+        fi
+    }
+    
+    # Function to add repository-level variables
+    add_repository_secrets() {
+        echo -e "${YELLOW}Adding repository-level variables${NC}"
+        
+        local secrets_added=0
+        local vars_added=0
+        
+        while IFS='=' read -r key value; do
+            # Skip empty lines and comments
+            [[ -z "$key" || "$key" =~ ^#.*$ ]] && continue
+            
+            # Remove quotes from value if present
+            value=$(echo "$value" | sed 's/^["'\'']\|["'\'']$//g')
+            
+            # Handle multi-line values (like private keys)
+            if [[ "$value" == *"\\n"* ]]; then
+                value=$(echo -e "$value")
+            fi
+            
+            # Check if variable name contains SECRET, KEY, or PASSWORD (case insensitive) OR if variables are not supported
+            if [[ "$key" =~ [Ss][Ee][Cc][Rr][Ee][Tt] ]] || [[ "$key" =~ [Kk][Ee][Yy] ]] || [[ "$key" =~ [Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd] ]] || [ "$supports_variables" = false ]; then
+                echo "Adding repository secret: $key"
+                echo "$value" | gh secret set "$key"
+                secrets_added=$((secrets_added + 1))
+            else
+                echo "Adding repository variable: $key"
+                echo "$value" | gh variable set "$key"
+                vars_added=$((vars_added + 1))
+            fi
+        done < .env
+        
+        if [ "$supports_variables" = true ]; then
+            echo "✅ Added $secrets_added secrets and $vars_added variables to repository"
+        else
+            echo "✅ Added $secrets_added secrets to repository"
+        fi
+    }
+    
+    # Ask user what they want to do
+    echo ""
+    echo "Choose an option:"
+    echo "1. Add variables/secrets to all environments"
+    echo "2. Add variables/secrets to specific environment"
+    echo "3. Add variables/secrets as repository-level"
+    echo "4. Add variables/secrets to both environments and repository level"
+    read -p "Enter your choice (1-4): " choice
+    
+    case $choice in
+        1)
+            for env in "${environments[@]}"; do
+                add_secrets_to_environment "$env"
+                echo ""
+            done
+            ;;
+        2)
+            echo "Available environments: ${environments[*]}"
+            read -p "Enter environment name: " selected_env
+            if [[ " ${environments[*]} " =~ " ${selected_env} " ]]; then
+                add_secrets_to_environment "$selected_env"
+            else
+                echo -e "${RED}Invalid environment name!${NC}"
+                return 1
+            fi
+            ;;
+        3)
+            add_repository_secrets
+            ;;
+        4)
+            add_repository_secrets
+            echo ""
+            for env in "${environments[@]}"; do
+                add_secrets_to_environment "$env"
+                echo ""
+            done
+            ;;
+        *)
+            echo -e "${RED}Invalid choice!${NC}"
+            return 1
+            ;;
+    esac
+    
+    echo -e "${GREEN}✅ Secrets setup completed!${NC}"
 }
 
 # Function to setup deployment secrets

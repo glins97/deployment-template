@@ -23,44 +23,42 @@ Before using this template, ensure you have:
 
 ## 🛠️ Quick Start
 
-### 1. Configure the Project
+### 1. Repository Setup
 
-1. **Create `config.json`** from the template and update with your project details:
-```bash
-cp config.example.json config.json
-# Add your project-specific environment variables
-```
-
-
-2. **Create `.env` file** based on `.env.example`:
-```bash
-cp .env.example .env
-# Add your project-specific environment variables
-```
-
-**Note**: The setup script will guide you through creating both `config.json` and `.env` from their templates.
-
-### 2. Run Setup Script
-
-Execute the main setup script to automatically configure everything:
+Execute the repository setup to configure environments and secrets:
 
 ```bash
 ./setup.sh
 ```
 
-This script will:
-- ✅ Validate your configuration
-- ✅ Check prerequisites
-- ✅ Create Terraform S3 backend
-- ✅ Generate EC2 key pairs
-- ✅ Setup GitHub environments (dev, hml, prd)
-- ✅ Upload secrets to GitHub
+**OR** use specific commands:
+```bash
+./setup.sh repository       # Repository & environment setup
+./setup.sh infrastructure   # Infrastructure setup (prefer GitHub Actions)
+./setup.sh help             # Show usage
+```
 
-### 3. Deploy Infrastructure
+This will:
+- ✅ Validate your configuration (creates `config.json` from template)
+- ✅ Check prerequisites (GitHub CLI, AWS CLI)
+- ✅ Validate Route53 hosted zones
+- ✅ Setup `.env` file (creates from template)
+- ✅ Create GitHub environments (dev, hml, prd)
+- ✅ Upload AWS credentials and project secrets to GitHub
+
+### 2. Infrastructure Setup
 
 1. Go to your GitHub repository's **Actions** tab
-2. Run the **"Setup Initial Infrastructure"** workflow first (one-time setup)
-3. Run the **"Deploy Infrastructure and Application"** workflow
+2. Run the **"Setup Initial Infrastructure"** workflow
+   - Creates Terraform S3 backend
+   - Generates EC2 key pairs
+   - Sets up DynamoDB state locking
+
+### 3. Deploy Application
+
+1. After infrastructure setup completes
+2. Run the **"Deploy Infrastructure and Application"** workflow
+3. Your application will be deployed to all environments
 
 ## 📁 Project Structure
 
@@ -68,7 +66,7 @@ This script will:
 deployment-template/
 ├── config.example.json        # Configuration template
 ├── config.json                # Main configuration file (created from template)
-├── setup.sh                   # Main setup script
+├── setup.sh                   # Setup orchestrator (110 lines)
 ├── .env.example               # Environment variables template
 ├── .env                       # Environment variables (created from template)
 ├── docker-compose.yml         # Docker services configuration
@@ -82,10 +80,10 @@ deployment-template/
 │       └── backend/          # EC2 + ALB
 ├── .github/workflows/        # CI/CD pipelines
 │   ├── deploy.yml           # Main deployment workflow
-│   └── setup-infrastructure.yml # Initial setup workflow
-├── scripts/                  # Utility scripts
-│   ├── setup-github-environments.sh
-│   └── env-to-secrets.sh
+│   └── setup-infrastructure.yml # Infrastructure setup workflow
+├── scripts/                  # Setup scripts
+│   ├── setup-repository.sh   # Repository & environment setup (all-in-one)
+│   └── setup-infrastructure.sh # Infrastructure setup
 ├── frontend/                 # React application
 └── backend/                  # Backend application
 ```
@@ -127,10 +125,13 @@ Steps:
 
 ### Initial Setup Workflow (`setup-infrastructure.yml`)
 
-One-time setup for:
-- Terraform state S3 bucket
-- EC2 key pairs
-- DynamoDB table for state locking
+**Run this workflow FIRST** (one-time setup):
+- Creates Terraform state S3 bucket with encryption and versioning
+- Generates EC2 key pairs and uploads to GitHub secrets
+- Creates DynamoDB table for state locking
+- Automatically configures GitHub secrets for deployment
+
+**Note**: This workflow calls `scripts/setup-infrastructure.sh` and requires AWS credentials to be set as repository secrets.
 
 ## 🔐 Environment Management
 
@@ -182,6 +183,18 @@ Update instance types in `config.json`:
 
 ## 🛠️ Manual Operations
 
+### Run Individual Setup Scripts
+
+```bash
+# Repository setup (includes GitHub environments and secrets)
+./scripts/setup-repository.sh
+
+# Infrastructure setup only (prefer GitHub Actions)
+./scripts/setup-infrastructure.sh
+```
+
+**Note**: All GitHub environment and secret management is now consolidated into `setup-repository.sh` for simplicity.
+
 ### Access EC2 Instances
 ```bash
 # Get instance IP from AWS console or Terraform outputs
@@ -225,6 +238,11 @@ docker-compose logs -f
    - Verify all secrets are set correctly
    - Check AWS permissions
    - Review workflow logs for specific errors
+
+5. **GitHub CLI variables not supported**:
+   - The scripts automatically detect GitHub CLI capabilities
+   - If `gh variable` isn't available, everything is stored as secrets
+   - Update GitHub CLI for variable support: `gh extension upgrade cli`
 
 ### Cleanup Resources
 To destroy all infrastructure:
