@@ -1,0 +1,208 @@
+name: Deploy Infrastructure and Application
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - hml
+          - prd
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  determine-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - name: Determine environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "environment=prd" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/staging" ]; then
+            echo "environment=hml" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-infrastructure:
+    needs: determine-environment
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    outputs:
+      frontend-bucket: ${{ steps.terraform.outputs.frontend_bucket_name }}
+      backend-instance-id: ${{ steps.terraform.outputs.backend_instance_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Read config and setup variables
+        id: config
+        run: |
+          ENV="${{ needs.determine-environment.outputs.environment }}"
+          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          AWS_REGION=$(jq -r '.aws.region' config.json)
+          
+          if [ "$ENV" = "prd" ]; then
+            FRONTEND_DOMAIN=$(jq -r '.infrastructure.frontend.domain.prd' config.json)
+            BACKEND_DOMAIN=$(jq -r '.infrastructure.backend.domain.prd' config.json)
+          else
+            FRONTEND_DOMAIN=$(jq -r ".infrastructure.frontend.domain.$ENV" config.json)
+            BACKEND_DOMAIN=$(jq -r ".infrastructure.backend.domain.$ENV" config.json)
+          fi
+          
+          INSTANCE_TYPE=$(jq -r ".infrastructure.backend.instance_type.$ENV" config.json)
+          
+          echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+          echo "frontend_domain=$FRONTEND_DOMAIN" >> $GITHUB_OUTPUT
+          echo "backend_domain=$BACKEND_DOMAIN" >> $GITHUB_OUTPUT
+          echo "instance_type=$INSTANCE_TYPE" >> $GITHUB_OUTPUT
+          echo "aws_region=$AWS_REGION" >> $GITHUB_OUTPUT
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ steps.config.outputs.project_name }}-terraform-state" \
+            -backend-config="key=${{ needs.determine-environment.outputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ steps.config.outputs.aws_region }}"
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: |
+          terraform plan \
+            -var="project_name=${{ steps.config.outputs.project_name }}" \
+            -var="environment=${{ needs.determine-environment.outputs.environment }}" \
+            -var="aws_region=${{ steps.config.outputs.aws_region }}" \
+            -var="frontend_domain=${{ steps.config.outputs.frontend_domain }}" \
+            -var="backend_domain=${{ steps.config.outputs.backend_domain }}" \
+            -var="instance_type=${{ steps.config.outputs.instance_type }}" \
+            -var="key_name=${{ secrets.EC2_KEY_NAME }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        id: terraform
+        working-directory: terraform
+        run: |
+          terraform apply tfplan
+          
+          echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
+          echo "backend_instance_id=$(terraform output -raw backend_instance_id)" >> $GITHUB_OUTPUT
+
+  deploy-frontend:
+    needs: [determine-environment, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to S3
+        run: |
+          aws s3 sync frontend/dist/ s3://${{ needs.deploy-infrastructure.outputs.frontend-bucket }}/ --delete
+
+      - name: Invalidate CloudFront
+        run: |
+          DISTRIBUTION_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items[0]=='${{ steps.config.outputs.frontend_domain }}'].Id" --output text)
+          aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+
+  deploy-backend:
+    needs: [determine-environment, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create .env from secrets
+        run: |
+          cat > .env << EOF
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          REDIS_URL=${{ secrets.REDIS_URL }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          EOF
+
+      - name: Copy files to EC2
+        run: |
+          # Get EC2 instance IP
+          INSTANCE_IP=$(aws ec2 describe-instances \
+            --instance-ids ${{ needs.deploy-infrastructure.outputs.backend-instance-id }} \
+            --query 'Reservations[0].Instances[0].PrivateIpAddress' \
+            --output text)
+          
+          # Create SSH key file
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/key.pem
+          chmod 600 /tmp/key.pem
+          
+          # Copy application files
+          scp -i /tmp/key.pem -o StrictHostKeyChecking=no -r \
+            backend/ docker-compose.yml .env \
+            ubuntu@$INSTANCE_IP:/opt/app/
+          
+          # Deploy application
+          ssh -i /tmp/key.pem -o StrictHostKeyChecking=no ubuntu@$INSTANCE_IP << 'EOF'
+            cd /opt/app
+            sudo docker-compose down || true
+            sudo docker-compose pull
+            sudo docker-compose up -d
+            sudo systemctl restart app
+          EOF

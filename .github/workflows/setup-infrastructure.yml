@@ -1,0 +1,101 @@
+name: Setup Initial Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_state_bucket:
+        description: 'Create Terraform state bucket'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  setup-terraform-backend:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.create_state_bucket == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create Terraform state bucket
+        run: |
+          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          BUCKET_NAME="$PROJECT_NAME-terraform-state"
+          
+          # Create S3 bucket for Terraform state
+          aws s3 mb s3://$BUCKET_NAME --region ${{ env.AWS_REGION }} || echo "Bucket already exists"
+          
+          # Enable versioning
+          aws s3api put-bucket-versioning \
+            --bucket $BUCKET_NAME \
+            --versioning-configuration Status=Enabled
+          
+          # Enable encryption
+          aws s3api put-bucket-encryption \
+            --bucket $BUCKET_NAME \
+            --server-side-encryption-configuration '{
+              "Rules": [
+                {
+                  "ApplyServerSideEncryptionByDefault": {
+                    "SSEAlgorithm": "AES256"
+                  }
+                }
+              ]
+            }'
+          
+          # Block public access
+          aws s3api put-public-access-block \
+            --bucket $BUCKET_NAME \
+            --public-access-block-configuration \
+              BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+          
+          # Create DynamoDB table for state locking
+          aws dynamodb create-table \
+            --table-name "$PROJECT_NAME-terraform-locks" \
+            --attribute-definitions AttributeName=LockID,AttributeType=S \
+            --key-schema AttributeName=LockID,KeyType=HASH \
+            --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+            --region ${{ env.AWS_REGION }} || echo "Table already exists"
+
+  create-ec2-key-pair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create EC2 Key Pair
+        run: |
+          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          KEY_NAME="$PROJECT_NAME-key"
+          
+          # Create key pair
+          aws ec2 create-key-pair \
+            --key-name $KEY_NAME \
+            --query 'KeyMaterial' \
+            --output text > /tmp/key.pem || echo "Key pair already exists"
+          
+          if [ -f /tmp/key.pem ]; then
+            echo "Created new key pair: $KEY_NAME"
+            echo "Private key content:"
+            cat /tmp/key.pem
+            echo ""
+            echo "Please save this private key and add it as EC2_PRIVATE_KEY secret in GitHub"
+            echo "Also add the key name '$KEY_NAME' as EC2_KEY_NAME secret"
+          fi
