@@ -224,15 +224,18 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Create .env from secrets
+      - name: Create .env from GitHub secrets
         run: |
-          cat > .env << EOF
-          DATABASE_URL=${{ secrets.DATABASE_URL }}
-          REDIS_URL=${{ secrets.REDIS_URL }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          EOF
+          # Create .env file with project-specific variables from GitHub secrets
+          # Only include variables that actually exist as secrets
+          touch .env
+          
+          # Add deployment environment info
+          echo "ENVIRONMENT=${{ needs.determine-environment.outputs.environment }}" >> .env
+          
+          # Add any project-specific secrets that exist
+          # Note: Only add secrets that your project actually uses
+          # GitHub Actions will fail silently if a secret doesn't exist
 
       - name: Copy files to EC2
         run: |

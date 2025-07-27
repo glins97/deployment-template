@@ -24,6 +24,7 @@ fi
 # Read config.json
 if [ ! -f "config.json" ]; then
     echo -e "${RED}config.json not found!${NC}"
+    echo "Please run the main setup.sh script first to create config.json from template."
     exit 1
 fi
 

@@ -31,6 +31,7 @@ fi
 # Read config.json
 if [ ! -f "config.json" ]; then
     echo -e "${RED}config.json not found!${NC}"
+    echo "Please run the main setup.sh script first to create config.json from template."
     exit 1
 fi
 
@@ -41,6 +42,10 @@ ENVIRONMENTS=("dev" "hml" "prd")  # Default environments
 echo -e "${GREEN}Setting up GitHub secrets from .env file${NC}"
 echo "Repository: $REPOSITORY"
 echo "Environments: ${ENVIRONMENTS[*]}"
+echo ""
+echo -e "${YELLOW}Note: Only project-specific environment variables from .env will be uploaded.${NC}"
+echo -e "${YELLOW}Deployment secrets (AWS credentials, EC2 keys) should be added separately.${NC}"
+echo ""
 
 # Function to add secrets to environment
 add_secrets_to_environment() {

@@ -41,10 +41,24 @@ command_exists() {
 validate_config() {
     echo -e "${YELLOW}Validating config.json...${NC}"
     
+    # Check if actual config.json exists, if not create from template
     if [ ! -f "config.json" ]; then
-        echo -e "${RED}❌ config.json not found!${NC}"
-        echo "Please ensure config.json exists in the current directory."
-        exit 1
+        if [ -f "config.example.json" ]; then
+            echo "Creating config.json from config.example.json..."
+            cp config.example.json config.json
+            echo -e "${YELLOW}📝 Please edit config.json with your actual project configuration${NC}"
+            echo ""
+            echo "Required updates:"
+            echo "  - project.name: Your project name"
+            echo "  - infrastructure domains: Your actual domain names"
+            echo "  - github.repository: Your GitHub repository (owner/repo-name)"
+            echo ""
+            read -p "Press Enter when you've updated config.json..."
+        else
+            echo -e "${RED}❌ config.example.json not found!${NC}"
+            echo "Please ensure config.example.json exists in the current directory."
+            exit 1
+        fi
     fi
     
     # Basic JSON validation - check for balanced braces
@@ -252,15 +266,24 @@ setup_env_file() {
         if [ -f ".env.example" ]; then
             echo "Creating .env from .env.example..."
             cp .env.example .env
-            echo -e "${YELLOW}📝 Please edit .env file with your actual values before proceeding${NC}"
-            read -p "Press Enter when you've updated the .env file..."
+            echo -e "${YELLOW}📝 .env.example has been copied to .env${NC}"
+            echo -e "${YELLOW}📝 Add your PROJECT-SPECIFIC environment variables to .env${NC}"
+            echo -e "${YELLOW}📝 Do NOT add deployment secrets (AWS keys, EC2 keys) to .env${NC}"
+            echo ""
+            echo "Example project variables (if your project needs them):"
+            echo "  DATABASE_URL=postgresql://localhost:5432/myapp"
+            echo "  JWT_SECRET=your-jwt-secret"
+            echo "  API_KEY=your-api-key"
+            echo ""
+            read -p "Press Enter when you've updated the .env file with your project variables..."
         else
             echo -e "${RED}❌ No .env or .env.example file found${NC}"
-            echo "Please create a .env file with your configuration."
+            echo "Please create a .env file with your project-specific configuration."
             exit 1
         fi
     else
         echo -e "${GREEN}✅ .env file exists${NC}"
+        echo -e "${YELLOW}📝 Ensure .env contains only PROJECT-SPECIFIC variables${NC}"
     fi
 }
 
@@ -365,20 +388,10 @@ create_ec2_keypair() {
     echo -e "${YELLOW}📝 Private key saved to: /tmp/${key_name}.pem${NC}"
     echo -e "${YELLOW}📝 Please add this private key as EC2_PRIVATE_KEY secret in GitHub${NC}"
     echo -e "${YELLOW}📝 Also add the key name '$key_name' as EC2_KEY_NAME secret${NC}"
-    
-    # Update .env file with key name
-    if grep -q "EC2_KEY_NAME=" .env; then
-        sed -i "s/EC2_KEY_NAME=.*/EC2_KEY_NAME=$key_name/" .env
-    else
-        echo "EC2_KEY_NAME=$key_name" >> .env
-    fi
-    
-    # Update .env file with private key content
-    if grep -q "EC2_PRIVATE_KEY=" .env; then
-        sed -i "s|EC2_PRIVATE_KEY=.*|EC2_PRIVATE_KEY=$(cat /tmp/${key_name}.pem | tr '\n' '\\n')|" .env
-    else
-        echo "EC2_PRIVATE_KEY=$(cat /tmp/${key_name}.pem | tr '\n' '\\n')" >> .env
-    fi
+    echo ""
+    echo "You can add these secrets using GitHub CLI:"
+    echo "gh secret set EC2_KEY_NAME --body '$key_name'"
+    echo "gh secret set EC2_PRIVATE_KEY --body-file /tmp/${key_name}.pem"
 }
 
 # Function to show next steps

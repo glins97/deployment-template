@@ -25,7 +25,7 @@ Before using this template, ensure you have:
 
 ### 1. Configure the Project
 
-1. **Update `config.json`** with your project details:
+1. **Create `config.json`** from the template and update with your project details:
 ```json
 {
   "project": {
@@ -61,8 +61,10 @@ Before using this template, ensure you have:
 2. **Create `.env` file** based on `.env.example`:
 ```bash
 cp .env.example .env
-# Edit .env with your actual values
+# Add your project-specific environment variables
 ```
+
+**Note**: The setup script will guide you through creating both `config.json` and `.env` from their templates.
 
 ### 2. Run Setup Script
 
@@ -90,9 +92,11 @@ This script will:
 
 ```
 deployment-template/
-├── config.json                 # Main configuration file
+├── config.example.json        # Configuration template
+├── config.json                # Main configuration file (created from template)
 ├── setup.sh                   # Main setup script
 ├── .env.example               # Environment variables template
+├── .env                       # Environment variables (created from template)
 ├── docker-compose.yml         # Docker services configuration
 ├── terraform/                 # Infrastructure as Code
 │   ├── main.tf               # Main Terraform configuration
@@ -162,14 +166,17 @@ One-time setup for:
 - **prd**: Production environment (with deployment protection)
 
 ### Secrets Management
-Required secrets for each environment:
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `EC2_KEY_NAME`
-- `EC2_PRIVATE_KEY`
-- `DATABASE_URL`
-- `REDIS_URL`
-- `JWT_SECRET`
+
+**Deployment Secrets** (managed by setup script):
+- `AWS_ACCESS_KEY_ID` - AWS credentials for deployment
+- `AWS_SECRET_ACCESS_KEY` - AWS credentials for deployment  
+- `EC2_KEY_NAME` - EC2 key pair name (auto-generated)
+- `EC2_PRIVATE_KEY` - EC2 private key (auto-generated)
+
+**Project Secrets** (from your .env file):
+- Add only the environment variables your specific project needs
+- Examples: `DATABASE_URL`, `JWT_SECRET`, `API_KEY`, etc.
+- Do NOT add deployment-related secrets to .env
 
 ## 📝 Customization
 
