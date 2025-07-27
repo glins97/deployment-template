@@ -39,18 +39,22 @@ fi
 REPOSITORY=$(grep -o '"repository"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"repository"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
 ENVIRONMENTS=("dev" "hml" "prd")  # Default environments
 
-echo -e "${GREEN}Setting up GitHub secrets from .env file${NC}"
+echo -e "${GREEN}Setting up GitHub variables and secrets from .env file${NC}"
 echo "Repository: $REPOSITORY"
 echo "Environments: ${ENVIRONMENTS[*]}"
 echo ""
-echo -e "${YELLOW}Note: Only project-specific environment variables from .env will be uploaded.${NC}"
-echo -e "${YELLOW}Deployment secrets (AWS credentials, EC2 keys) should be added separately.${NC}"
+echo -e "${YELLOW}Variables containing 'SECRET', 'KEY', or 'PASSWORD' → GitHub Secrets${NC}"
+echo -e "${YELLOW}Other variables → GitHub Environment Variables${NC}"
+echo -e "${YELLOW}Deployment secrets (AWS credentials, EC2 keys) are handled separately.${NC}"
 echo ""
 
 # Function to add secrets to environment
 add_secrets_to_environment() {
     local env_name=$1
-    echo -e "${YELLOW}Adding secrets to environment: $env_name${NC}"
+    echo -e "${YELLOW}Adding variables to environment: $env_name${NC}"
+    
+    local secrets_added=0
+    local vars_added=0
     
     while IFS='=' read -r key value; do
         # Skip empty lines and comments
@@ -64,14 +68,27 @@ add_secrets_to_environment() {
             value=$(echo -e "$value")
         fi
         
-        echo "Adding secret: $key"
-        echo "$value" | gh secret set "$key" --env "$env_name" --body @-
+        # Check if variable name contains SECRET, KEY, or PASSWORD (case insensitive)
+        if [[ "$key" =~ [Ss][Ee][Cc][Rr][Ee][Tt] ]] || [[ "$key" =~ [Kk][Ee][Yy] ]] || [[ "$key" =~ [Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd] ]]; then
+            echo "Adding secret: $key"
+            echo "$value" | gh secret set "$key" --env "$env_name"
+            secrets_added=$((secrets_added + 1))
+        else
+            echo "Adding environment variable: $key"
+            echo "$value" | gh variable set "$key" --env "$env_name"
+            vars_added=$((vars_added + 1))
+        fi
     done < .env
+    
+    echo "✅ Added $secrets_added secrets and $vars_added environment variables to $env_name"
 }
 
-# Function to add repository-level secrets
+# Function to add repository-level variables
 add_repository_secrets() {
-    echo -e "${YELLOW}Adding repository-level secrets${NC}"
+    echo -e "${YELLOW}Adding repository-level variables${NC}"
+    
+    local secrets_added=0
+    local vars_added=0
     
     while IFS='=' read -r key value; do
         # Skip empty lines and comments
@@ -85,18 +102,28 @@ add_repository_secrets() {
             value=$(echo -e "$value")
         fi
         
-        echo "Adding repository secret: $key"
-        echo "$value" | gh secret set "$key" --body @-
+        # Check if variable name contains SECRET, KEY, or PASSWORD (case insensitive)
+        if [[ "$key" =~ [Ss][Ee][Cc][Rr][Ee][Tt] ]] || [[ "$key" =~ [Kk][Ee][Yy] ]] || [[ "$key" =~ [Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd] ]]; then
+            echo "Adding repository secret: $key"
+            echo "$value" | gh secret set "$key"
+            secrets_added=$((secrets_added + 1))
+        else
+            echo "Adding repository variable: $key"
+            echo "$value" | gh variable set "$key"
+            vars_added=$((vars_added + 1))
+        fi
     done < .env
+    
+    echo "✅ Added $secrets_added secrets and $vars_added variables to repository"
 }
 
 # Ask user what they want to do
 echo ""
 echo "Choose an option:"
-echo "1. Add secrets to all environments"
-echo "2. Add secrets to specific environment"
-echo "3. Add secrets as repository-level secrets"
-echo "4. Add secrets to both environments and repository level"
+echo "1. Add variables/secrets to all environments"
+echo "2. Add variables/secrets to specific environment"
+echo "3. Add variables/secrets as repository-level"
+echo "4. Add variables/secrets to both environments and repository level"
 read -p "Enter your choice (1-4): " choice
 
 case $choice in

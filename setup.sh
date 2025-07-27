@@ -538,8 +538,8 @@ main() {
     setup_deployment_secrets
     echo ""
     
-    # Step 9: Upload project secrets
-    echo -e "${YELLOW}Would you like to upload project secrets from .env to GitHub now? (y/n)${NC}"
+    # Step 9: Upload project variables/secrets
+    echo -e "${YELLOW}Would you like to upload project variables/secrets from .env to GitHub now? (y/n)${NC}"
     read -p "> " upload_now
     if [[ $upload_now =~ ^[Yy]$ ]]; then
         upload_secrets
