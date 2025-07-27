@@ -39,12 +39,12 @@ show_usage() {
     echo ""
     echo -e "${YELLOW}Commands:${NC}"
     echo "  repository       Set up repository, environments, and secrets"
-    echo "  infrastructure   Run infrastructure setup (use GitHub Actions instead)"
+    echo "  infrastructure   Run infrastructure setup (creates AWS resources)"
     echo "  help             Show this help message"
     echo ""
     echo -e "${YELLOW}Recommended workflow:${NC}"
     echo "1. ${GREEN}./setup.sh repository${NC}     # Set up repository and environments"
-    echo "2. ${GREEN}GitHub Actions${NC}            # Run 'Setup Initial Infrastructure' workflow"
+    echo "2. ${GREEN}./setup.sh infrastructure${NC} # Set up AWS infrastructure"
     echo "3. ${GREEN}GitHub Actions${NC}            # Run 'Deploy Infrastructure and Application' workflow"
 }
 
@@ -65,19 +65,10 @@ main() {
             fi
             ;;
         "infrastructure"|"infra")
-            echo -e "${YELLOW}Infrastructure setup should be run via GitHub Actions!${NC}"
+            echo -e "${BLUE}Starting Infrastructure Setup...${NC}"
             echo ""
-            echo "Please follow these steps:"
-            echo "1. Go to your GitHub repository"
-            echo "2. Navigate to Actions tab"
-            echo "3. Run 'Setup Initial Infrastructure' workflow"
-            echo ""
-            echo "If you really want to run it locally:"
             if [ -f "scripts/setup-infrastructure.sh" ]; then
-                read -p "Continue with local infrastructure setup? (y/N): " confirm
-                if [[ $confirm =~ ^[Yy]$ ]]; then
-                    ./scripts/setup-infrastructure.sh
-                fi
+                ./scripts/setup-infrastructure.sh
             else
                 echo -e "${RED}❌ setup-infrastructure.sh script not found${NC}"
                 exit 1

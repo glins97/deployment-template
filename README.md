@@ -48,16 +48,21 @@ This will:
 
 ### 2. Infrastructure Setup
 
-1. Go to your GitHub repository's **Actions** tab
-2. Run the **"Setup Initial Infrastructure"** workflow
-   - Creates Terraform S3 backend
-   - Generates EC2 key pairs
-   - Sets up DynamoDB state locking
+Run infrastructure setup locally (requires config.json):
+
+```bash
+./setup.sh infrastructure
+```
+
+This creates:
+- Terraform S3 backend bucket with versioning and encryption
+- DynamoDB table for state locking
+- EC2 key pairs and uploads them to GitHub secrets
 
 ### 3. Deploy Application
 
-1. After infrastructure setup completes
-2. Run the **"Deploy Infrastructure and Application"** workflow
+1. After local infrastructure setup completes
+2. Go to GitHub Actions and run the **"Deploy"** workflow
 3. Your application will be deployed to all environments
 
 ## 📁 Project Structure
@@ -79,8 +84,7 @@ deployment-template/
 │       ├── frontend/         # S3 + CloudFront
 │       └── backend/          # EC2 + ALB
 ├── .github/workflows/        # CI/CD pipelines
-│   ├── deploy.yml           # Main deployment workflow
-│   └── setup-infrastructure.yml # Infrastructure setup workflow
+│   └── deploy.yml           # Main deployment workflow
 ├── scripts/                  # Setup scripts
 │   ├── setup-repository.sh   # Repository & environment setup (all-in-one)
 │   └── setup-infrastructure.sh # Infrastructure setup
@@ -123,15 +127,7 @@ Steps:
 2. **Deploy Frontend**: Build React app → Deploy to S3 → Invalidate CloudFront
 3. **Deploy Backend**: Build Docker images → Deploy to EC2
 
-### Initial Setup Workflow (`setup-infrastructure.yml`)
-
-**Run this workflow FIRST** (one-time setup):
-- Creates Terraform state S3 bucket with encryption and versioning
-- Generates EC2 key pairs and uploads to GitHub secrets
-- Creates DynamoDB table for state locking
-- Automatically configures GitHub secrets for deployment
-
-**Note**: This workflow calls `scripts/setup-infrastructure.sh` and requires AWS credentials to be set as repository secrets.
+**Note**: Infrastructure setup (S3 backend, EC2 keys, etc.) must be completed locally before running this workflow.
 
 ## 🔐 Environment Management
 
@@ -189,11 +185,11 @@ Update instance types in `config.json`:
 # Repository setup (includes GitHub environments and secrets)
 ./scripts/setup-repository.sh
 
-# Infrastructure setup only (prefer GitHub Actions)
+# Infrastructure setup (run locally only)
 ./scripts/setup-infrastructure.sh
 ```
 
-**Note**: All GitHub environment and secret management is now consolidated into `setup-repository.sh` for simplicity.
+**Note**: Infrastructure setup must be run locally because it requires `config.json` which contains project-specific configuration and is not committed to the repository.
 
 ### Access EC2 Instances
 ```bash
