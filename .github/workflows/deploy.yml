@@ -87,6 +87,54 @@ jobs:
           echo "instance_type=$INSTANCE_TYPE" >> $GITHUB_OUTPUT
           echo "aws_region=$AWS_REGION" >> $GITHUB_OUTPUT
 
+      - name: Validate Route53 Hosted Zones
+        run: |
+          echo "🔍 Checking Route53 hosted zones for domains..."
+          
+          FRONTEND_DOMAIN="${{ steps.config.outputs.frontend_domain }}"
+          BACKEND_DOMAIN="${{ steps.config.outputs.backend_domain }}"
+          
+          # Extract root domains from subdomains
+          FRONTEND_ROOT_DOMAIN=$(echo "$FRONTEND_DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
+          BACKEND_ROOT_DOMAIN=$(echo "$BACKEND_DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
+          
+          echo "Frontend domain: $FRONTEND_DOMAIN (root: $FRONTEND_ROOT_DOMAIN)"
+          echo "Backend domain: $BACKEND_DOMAIN (root: $BACKEND_ROOT_DOMAIN)"
+          
+          # Check if hosted zones exist
+          check_hosted_zone() {
+            local domain=$1
+            local zone_info=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${domain}.']" --output json)
+            if [ "$(echo "$zone_info" | jq length)" -eq 0 ]; then
+              echo "❌ ERROR: Route53 hosted zone for '$domain' not found!"
+              echo "Please create a hosted zone for '$domain' in Route53 before proceeding."
+              echo "You can create it manually in AWS Console or use:"
+              echo "aws route53 create-hosted-zone --name $domain --caller-reference $(date +%s)"
+              return 1
+            else
+              local zone_id=$(echo "$zone_info" | jq -r '.[0].Id' | sed 's|/hostedzone/||')
+              echo "✅ Hosted zone for '$domain' found (ID: $zone_id)"
+              return 0
+            fi
+          }
+          
+          # Validate both domains
+          FRONTEND_CHECK=0
+          BACKEND_CHECK=0
+          
+          check_hosted_zone "$FRONTEND_ROOT_DOMAIN" || FRONTEND_CHECK=1
+          check_hosted_zone "$BACKEND_ROOT_DOMAIN" || BACKEND_CHECK=1
+          
+          if [ $FRONTEND_CHECK -ne 0 ] || [ $BACKEND_CHECK -ne 0 ]; then
+            echo ""
+            echo "❌ One or more required hosted zones are missing."
+            echo "Please create the missing hosted zones in Route53 and update your domain's nameservers."
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All required hosted zones are available!"
+
       - name: Terraform Init
         working-directory: terraform
         run: |

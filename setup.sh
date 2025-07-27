@@ -60,6 +60,79 @@ validate_config() {
     echo -e "${GREEN}✅ config.json is valid${NC}"
 }
 
+# Function to validate Route53 hosted zones
+validate_hosted_zones() {
+    echo -e "${YELLOW}Validating Route53 hosted zones...${NC}"
+    
+    # Get all domains from config
+    local environments=($(jq -r '.environments[]' config.json))
+    local all_domains=()
+    
+    for env in "${environments[@]}"; do
+        if [ "$env" = "prd" ]; then
+            local frontend_domain=$(jq -r '.infrastructure.frontend.domain.prd' config.json)
+            local backend_domain=$(jq -r '.infrastructure.backend.domain.prd' config.json)
+        else
+            local frontend_domain=$(jq -r ".infrastructure.frontend.domain.$env" config.json)
+            local backend_domain=$(jq -r ".infrastructure.backend.domain.$env" config.json)
+        fi
+        
+        all_domains+=("$frontend_domain" "$backend_domain")
+    done
+    
+    # Extract unique root domains
+    local root_domains=()
+    for domain in "${all_domains[@]}"; do
+        local root_domain=$(echo "$domain" | awk -F. '{print $(NF-1)"."$NF}')
+        if [[ ! " ${root_domains[@]} " =~ " ${root_domain} " ]]; then
+            root_domains+=("$root_domain")
+        fi
+    done
+    
+    echo "Checking hosted zones for domains: ${root_domains[*]}"
+    
+    # Function to check individual hosted zone
+    check_hosted_zone() {
+        local domain=$1
+        local zone_info=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${domain}.']" --output json 2>/dev/null)
+        
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Error checking Route53 for domain '$domain'${NC}"
+            echo "Please ensure AWS CLI is configured correctly."
+            return 1
+        fi
+        
+        if [ "$(echo "$zone_info" | jq length)" -eq 0 ]; then
+            echo -e "${RED}❌ Route53 hosted zone for '$domain' not found!${NC}"
+            echo "Please create a hosted zone for '$domain' in Route53 before proceeding."
+            echo "You can create it manually in AWS Console or use:"
+            echo "aws route53 create-hosted-zone --name $domain --caller-reference \$(date +%s)"
+            return 1
+        else
+            local zone_id=$(echo "$zone_info" | jq -r '.[0].Id' | sed 's|/hostedzone/||')
+            echo -e "${GREEN}✅ Hosted zone for '$domain' found (ID: $zone_id)${NC}"
+            return 0
+        fi
+    }
+    
+    # Check all root domains
+    local failed_checks=0
+    for domain in "${root_domains[@]}"; do
+        check_hosted_zone "$domain" || failed_checks=$((failed_checks + 1))
+    done
+    
+    if [ $failed_checks -gt 0 ]; then
+        echo ""
+        echo -e "${RED}❌ $failed_checks hosted zone(s) are missing.${NC}"
+        echo "Please create the missing hosted zones in Route53 and update your domain's nameservers."
+        echo ""
+        echo "After creating the hosted zones, you can run this script again."
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✅ All required hosted zones are available!${NC}"
+}
+
 # Function to check prerequisites
 check_prerequisites() {
     echo -e "${YELLOW}Checking prerequisites...${NC}"
@@ -293,23 +366,27 @@ main() {
     check_prerequisites
     echo ""
     
-    # Step 3: Setup .env file
+    # Step 3: Validate hosted zones
+    validate_hosted_zones
+    echo ""
+    
+    # Step 4: Setup .env file
     setup_env_file
     echo ""
     
-    # Step 4: Initialize Terraform backend
+    # Step 5: Initialize Terraform backend
     init_terraform_backend
     echo ""
     
-    # Step 5: Create EC2 key pair
+    # Step 6: Create EC2 key pair
     create_ec2_keypair
     echo ""
     
-    # Step 6: Setup GitHub environments
+    # Step 7: Setup GitHub environments
     setup_github_environments
     echo ""
     
-    # Step 7: Upload secrets
+    # Step 8: Upload secrets
     echo -e "${YELLOW}Would you like to upload secrets to GitHub now? (y/n)${NC}"
     read -p "> " upload_now
     if [[ $upload_now =~ ^[Yy]$ ]]; then
@@ -317,7 +394,7 @@ main() {
         echo ""
     fi
     
-    # Step 8: Show next steps
+    # Step 9: Show next steps
     show_next_steps
 }
 
