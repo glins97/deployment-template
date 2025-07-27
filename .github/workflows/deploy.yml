@@ -105,8 +105,8 @@ jobs:
           # Check if hosted zones exist
           check_hosted_zone() {
             local domain=$1
-            local zone_info=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${domain}.']" --output json)
-            if [ "$(echo "$zone_info" | jq length)" -eq 0 ]; then
+            local zone_info=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${domain}.' || Name=='${domain}']" --output json)
+            if [ -z "$zone_info" ] || [ "$zone_info" = "[]" ] || ! echo "$zone_info" | grep -q '"Id"'; then
               echo "❌ ERROR: Route53 hosted zone for '$domain' not found!"
               echo "Please create a hosted zone for '$domain' in Route53 before proceeding."
               echo "You can create it manually in AWS Console or use:"
@@ -129,6 +129,10 @@ jobs:
           if [ $FRONTEND_CHECK -ne 0 ] || [ $BACKEND_CHECK -ne 0 ]; then
             echo ""
             echo "❌ One or more required hosted zones are missing."
+            echo ""
+            echo "📋 Current hosted zones in your AWS account:"
+            aws route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table || echo "Unable to list hosted zones"
+            echo ""
             echo "Please create the missing hosted zones in Route53 and update your domain's nameservers."
             exit 1
           fi

@@ -127,7 +127,8 @@ validate_hosted_zones() {
     # Function to check individual hosted zone
     check_hosted_zone() {
         local domain=$1
-        local zone_info=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${domain}.']" --output json 2>/dev/null)
+        # Route53 hosted zones have trailing dots, so we check for both formats
+        local zone_info=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${domain}.' || Name=='${domain}']" --output json 2>/dev/null)
         
         if [ $? -ne 0 ]; then
             echo -e "${RED}❌ Error checking Route53 for domain '$domain'${NC}"
@@ -135,7 +136,7 @@ validate_hosted_zones() {
             return 1
         fi
         
-        if [ -z "$zone_info" ] || ! echo "$zone_info" | grep -q "HostedZones"; then
+        if [ -z "$zone_info" ] || [ "$zone_info" = "[]" ] || ! echo "$zone_info" | grep -q '"Id"'; then
             echo -e "${RED}❌ Route53 hosted zone for '$domain' not found!${NC}"
             echo "Please create a hosted zone for '$domain' in Route53 before proceeding."
             echo "You can create it manually in AWS Console or use:"
@@ -157,6 +158,12 @@ validate_hosted_zones() {
     if [ $failed_checks -gt 0 ]; then
         echo ""
         echo -e "${RED}❌ $failed_checks hosted zone(s) are missing.${NC}"
+        echo ""
+        echo -e "${YELLOW}📋 Current hosted zones in your AWS account:${NC}"
+        aws route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table 2>/dev/null || {
+            echo "Unable to list hosted zones. Please check AWS CLI configuration."
+        }
+        echo ""
         echo "Please create the missing hosted zones in Route53 and update your domain's nameservers."
         echo ""
         echo "After creating the hosted zones, you can run this script again."
