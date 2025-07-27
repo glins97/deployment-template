@@ -47,15 +47,25 @@ create_environment() {
         echo -e "${GREEN}Environment $env_name already exists or created successfully${NC}"
     }
     
-    # Set environment protection rules
+    # Set environment protection rules for production
     if [ "$env_name" = "prd" ]; then
         echo "Setting protection rules for production environment..."
+        # Create a temporary JSON file for the protection rules
+        cat > /tmp/protection_rules.json << EOF
+{
+  "wait_timer": 0,
+  "prevent_self_review": false,
+  "reviewers": [],
+  "deployment_branch_policy": {
+    "protected_branches": true,
+    "custom_branch_policies": false
+  }
+}
+EOF
         gh api repos/$REPOSITORY/environments/$env_name -X PUT \
-            --field wait_timer=0 \
-            --field prevent_self_review=false \
-            --field reviewers='[]' \
-            --field deployment_branch_policy='{"protected_branches":true,"custom_branch_policies":false}' \
-            --silent || echo "Protection rules already set"
+            --input /tmp/protection_rules.json \
+            --silent 2>/dev/null && echo "✅ Protection rules configured" || echo "⚠️ Protection rules configuration skipped"
+        rm -f /tmp/protection_rules.json
     fi
 }
 

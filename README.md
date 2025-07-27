@@ -26,37 +26,11 @@ Before using this template, ensure you have:
 ### 1. Configure the Project
 
 1. **Create `config.json`** from the template and update with your project details:
-```json
-{
-  "project": {
-    "name": "my-awesome-app",
-    "description": "My awesome full stack application"
-  },
-  "aws": {
-    "region": "us-east-1"
-  },
-  "environments": ["dev", "hml", "prd"],
-  "infrastructure": {
-    "frontend": {
-      "domain": {
-        "dev": "dev.myapp.com",
-        "hml": "hml.myapp.com", 
-        "prd": "myapp.com"
-      }
-    },
-    "backend": {
-      "domain": {
-        "dev": "backend.dev.myapp.com",
-        "hml": "backend.hml.myapp.com",
-        "prd": "backend.myapp.com"
-      }
-    }
-  },
-  "github": {
-    "repository": "username/my-awesome-app"
-  }
-}
+```bash
+cp config.example.json config.json
+# Add your project-specific environment variables
 ```
+
 
 2. **Create `.env` file** based on `.env.example`:
 ```bash

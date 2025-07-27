@@ -50,8 +50,9 @@ validate_config() {
             echo ""
             echo "Required updates:"
             echo "  - project.name: Your project name"
-            echo "  - infrastructure domains: Your actual domain names"
+            echo "  - infrastructure domains: Your actual domain names"  
             echo "  - github.repository: Your GitHub repository (owner/repo-name)"
+            echo "  - aws.credentials: Your AWS access key and secret key"
             echo ""
             read -p "Press Enter when you've updated config.json..."
         else
@@ -81,9 +82,11 @@ validate_config() {
     local project_name=$(get_json_value config.json ".project.name")
     local aws_region=$(get_json_value config.json ".aws.region")
     local github_repo=$(get_json_value config.json ".github.repository")
+    local aws_access_key=$(get_json_value config.json ".aws.credentials.access_key_id")
+    local aws_secret_key=$(get_json_value config.json ".aws.credentials.secret_access_key")
     
-    if [ -z "$project_name" ] || [ "$project_name" = "unknown" ]; then
-        echo -e "${RED}❌ Missing or invalid project.name in config.json${NC}"
+    if [ -z "$project_name" ] || [ "$project_name" = "unknown" ] || [ "$project_name" = "my-fullstack-app" ]; then
+        echo -e "${RED}❌ Missing or placeholder project.name in config.json${NC}"
         exit 1
     fi
     
@@ -92,9 +95,16 @@ validate_config() {
         exit 1
     fi
     
-    if [ -z "$github_repo" ] || [ "$github_repo" = "unknown" ]; then
-        echo -e "${RED}❌ Missing or invalid github.repository in config.json${NC}"
+    if [ -z "$github_repo" ] || [ "$github_repo" = "unknown" ] || [ "$github_repo" = "owner/repo-name" ]; then
+        echo -e "${RED}❌ Missing or placeholder github.repository in config.json${NC}"
         exit 1
+    fi
+    
+    # Warn about AWS credentials but don't exit (they can be added later)
+    if [ -z "$aws_access_key" ] || [ "$aws_access_key" = "unknown" ] || [ "$aws_access_key" = "your_aws_access_key_id" ] || \
+       [ -z "$aws_secret_key" ] || [ "$aws_secret_key" = "unknown" ] || [ "$aws_secret_key" = "your_aws_secret_access_key" ]; then
+        echo -e "${YELLOW}⚠️ AWS credentials appear to be placeholder values in config.json${NC}"
+        echo -e "${YELLOW}   You'll need to add real AWS credentials before deployment${NC}"
     fi
     
     echo -e "${GREEN}✅ config.json is valid${NC}"
@@ -200,6 +210,12 @@ get_json_value() {
             ;;
         ".aws.region")
             grep -o '"region"[[:space:]]*:[[:space:]]*"[^"]*"' "$json_file" | sed 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+            ;;
+        ".aws.credentials.access_key_id")
+            grep -A 5 '"credentials"' "$json_file" | grep '"access_key_id"' | sed 's/.*"access_key_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+            ;;
+        ".aws.credentials.secret_access_key")
+            grep -A 5 '"credentials"' "$json_file" | grep '"secret_access_key"' | sed 's/.*"secret_access_key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
             ;;
         ".github.repository")
             grep -o '"repository"[[:space:]]*:[[:space:]]*"[^"]*"' "$json_file" | sed 's/.*"repository"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
@@ -392,6 +408,54 @@ create_ec2_keypair() {
     echo "You can add these secrets using GitHub CLI:"
     echo "gh secret set EC2_KEY_NAME --body '$key_name'"
     echo "gh secret set EC2_PRIVATE_KEY --body-file /tmp/${key_name}.pem"
+    echo ""
+    echo -e "${YELLOW}Also add your AWS credentials as repository secrets:${NC}"
+    echo "gh secret set AWS_ACCESS_KEY_ID --body 'your_aws_access_key'"
+    echo "gh secret set AWS_SECRET_ACCESS_KEY --body 'your_aws_secret_key'"
+}
+
+# Function to setup deployment secrets
+setup_deployment_secrets() {
+    echo -e "${YELLOW}Setting up deployment secrets...${NC}"
+    echo ""
+    echo "The following secrets need to be added to GitHub:"
+    echo "1. AWS_ACCESS_KEY_ID (your AWS access key)"
+    echo "2. AWS_SECRET_ACCESS_KEY (your AWS secret key)"
+    echo "3. EC2_KEY_NAME (already created: $key_name)"
+    echo "4. EC2_PRIVATE_KEY (already created at /tmp/${key_name}.pem)"
+    echo ""
+    
+    read -p "Do you want to add these secrets now? (y/n): " add_secrets
+    if [[ $add_secrets =~ ^[Yy]$ ]]; then
+        local project_name=$(get_json_value config.json ".project.name")
+        local key_name="$project_name-key"
+        
+        # Add EC2 secrets
+        echo "Adding EC2 secrets..."
+        gh secret set EC2_KEY_NAME --body "$key_name" && echo "✅ EC2_KEY_NAME added"
+        gh secret set EC2_PRIVATE_KEY --body-file "/tmp/${key_name}.pem" && echo "✅ EC2_PRIVATE_KEY added"
+        
+        # Get AWS credentials from config.json
+        echo ""
+        echo "Getting AWS credentials from config.json..."
+        local aws_access_key=$(get_json_value config.json ".aws.credentials.access_key_id")
+        local aws_secret_key=$(get_json_value config.json ".aws.credentials.secret_access_key")
+        
+        # Check if credentials are placeholder values
+        if [ -n "$aws_access_key" ] && [ "$aws_access_key" != "unknown" ] && [ "$aws_access_key" != "your_aws_access_key_id" ] && \
+           [ -n "$aws_secret_key" ] && [ "$aws_secret_key" != "unknown" ] && [ "$aws_secret_key" != "your_aws_secret_access_key" ]; then
+            gh secret set AWS_ACCESS_KEY_ID --body "$aws_access_key" && echo "✅ AWS_ACCESS_KEY_ID added"
+            gh secret set AWS_SECRET_ACCESS_KEY --body "$aws_secret_key" && echo "✅ AWS_SECRET_ACCESS_KEY added"
+            echo -e "${GREEN}✅ All deployment secrets added successfully!${NC}"
+        else
+            echo -e "${YELLOW}⚠️ AWS credentials not found or are placeholder values in config.json${NC}"
+            echo "Please update config.json with your actual AWS credentials and run the script again, or add them manually:"
+            echo "gh secret set AWS_ACCESS_KEY_ID --body 'your_aws_access_key'"
+            echo "gh secret set AWS_SECRET_ACCESS_KEY --body 'your_aws_secret_key'"
+        fi
+    else
+        echo -e "${YELLOW}⚠️ Deployment secrets not added. Please add them manually before deploying.${NC}"
+    fi
 }
 
 # Function to show next steps
@@ -461,15 +525,19 @@ main() {
     setup_github_environments
     echo ""
     
-    # Step 8: Upload secrets
-    echo -e "${YELLOW}Would you like to upload secrets to GitHub now? (y/n)${NC}"
+    # Step 8: Setup deployment secrets
+    setup_deployment_secrets
+    echo ""
+    
+    # Step 9: Upload project secrets
+    echo -e "${YELLOW}Would you like to upload project secrets from .env to GitHub now? (y/n)${NC}"
     read -p "> " upload_now
     if [[ $upload_now =~ ^[Yy]$ ]]; then
         upload_secrets
         echo ""
     fi
     
-    # Step 9: Show next steps
+    # Step 10: Show next steps
     show_next_steps
 }
 

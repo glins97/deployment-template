@@ -5,7 +5,11 @@
   },
   "aws": {
     "region": "us-east-1",
-    "profile": "default"
+    "profile": "default",
+    "credentials": {
+      "access_key_id": "your_aws_access_key_id",
+      "secret_access_key": "your_aws_secret_access_key"
+    }
   },
   "environments": ["dev", "hml", "prd"],
   "infrastructure": {
