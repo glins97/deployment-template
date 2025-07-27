@@ -418,6 +418,9 @@ create_ec2_keypair() {
 setup_deployment_secrets() {
     echo -e "${YELLOW}Setting up deployment secrets...${NC}"
     echo ""
+    local project_name=$(get_json_value config.json ".project.name")
+    local key_name="$project_name-key"
+    
     echo "The following secrets need to be added to GitHub:"
     echo "1. AWS_ACCESS_KEY_ID (your AWS access key)"
     echo "2. AWS_SECRET_ACCESS_KEY (your AWS secret key)"
@@ -433,7 +436,13 @@ setup_deployment_secrets() {
         # Add EC2 secrets
         echo "Adding EC2 secrets..."
         gh secret set EC2_KEY_NAME --body "$key_name" && echo "✅ EC2_KEY_NAME added"
-        gh secret set EC2_PRIVATE_KEY --body-file "/tmp/${key_name}.pem" && echo "✅ EC2_PRIVATE_KEY added"
+        
+        # GitHub CLI doesn't have --body-file, so we use standard input
+        if [ -f "/tmp/${key_name}.pem" ]; then
+            cat "/tmp/${key_name}.pem" | gh secret set EC2_PRIVATE_KEY && echo "✅ EC2_PRIVATE_KEY added"
+        else
+            echo "⚠️ EC2 private key file not found at /tmp/${key_name}.pem"
+        fi
         
         # Get AWS credentials from config.json
         echo ""
