@@ -12,17 +12,17 @@
     "frontend": {
       "type": "s3-cloudfront",
       "domain": {
-        "dev": "dev.example.com",
-        "hml": "hml.example.com", 
-        "prd": "example.com"
+        "dev": "dev.test-deployment.snowfox-ai.com",
+        "hml": "hml.test-deployment.snowfox-ai.com", 
+        "prd": "test-deployment.snowfox-ai.com"
       }
     },
     "backend": {
       "type": "ec2-docker-compose",
       "domain": {
-        "dev": "backend.dev.example.com",
-        "hml": "backend.hml.example.com",
-        "prd": "backend.example.com"
+        "dev": "backend.dev.test-deployment.snowfox-ai.com",
+        "hml": "backend.hml.test-deployment.snowfox-ai.com",
+        "prd": "backend.test-deployment.snowfox-ai.com"
       },
       "instance_type": {
         "dev": "t3.small",
@@ -32,16 +32,22 @@
       "load_balancer": {
         "type": "application",
         "certificate_domain": {
-          "dev": "backend.dev.example.com",
-          "hml": "backend.hml.example.com",
-          "prd": "backend.example.com"
+          "dev": "backend.dev.test-deployment.snowfox-ai.com",
+          "hml": "backend.hml.test-deployment.snowfox-ai.com",
+          "prd": "backend.test-deployment.snowfox-ai.com"
         }
       }
     }
   },
   "github": {
     "repository": "owner/repo-name",
-    "secrets_from_env": true
+    "secrets": {
+      "deployment": [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY"
+      ],
+      "from_env_file": true
+    }
   },
   "env_file": ".env"
 }
