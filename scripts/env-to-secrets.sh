@@ -21,6 +21,18 @@ if ! gh auth status &> /dev/null; then
     exit 1
 fi
 
+# Check if GitHub CLI supports variables (newer versions)
+SUPPORTS_VARIABLES=false
+if gh variable --help &> /dev/null; then
+    SUPPORTS_VARIABLES=true
+fi
+
+if [ "$SUPPORTS_VARIABLES" = false ]; then
+    echo -e "${YELLOW}Your GitHub CLI version doesn't support variables.${NC}"
+    echo -e "${YELLOW}All variables will be stored as secrets instead.${NC}"
+    echo ""
+fi
+
 # Check if .env file exists
 if [ ! -f ".env" ]; then
     echo -e "${RED}.env file not found!${NC}"
@@ -43,8 +55,12 @@ echo -e "${GREEN}Setting up GitHub variables and secrets from .env file${NC}"
 echo "Repository: $REPOSITORY"
 echo "Environments: ${ENVIRONMENTS[*]}"
 echo ""
-echo -e "${YELLOW}Variables containing 'SECRET', 'KEY', or 'PASSWORD' → GitHub Secrets${NC}"
-echo -e "${YELLOW}Other variables → GitHub Environment Variables${NC}"
+if [ "$SUPPORTS_VARIABLES" = true ]; then
+    echo -e "${YELLOW}Variables containing 'SECRET', 'KEY', or 'PASSWORD' → GitHub Secrets${NC}"
+    echo -e "${YELLOW}Other variables → GitHub Environment Variables${NC}"
+else
+    echo -e "${YELLOW}All variables will be stored as GitHub Secrets${NC}"
+fi
 echo -e "${YELLOW}Deployment secrets (AWS credentials, EC2 keys) are handled separately.${NC}"
 echo ""
 
@@ -68,8 +84,8 @@ add_secrets_to_environment() {
             value=$(echo -e "$value")
         fi
         
-        # Check if variable name contains SECRET, KEY, or PASSWORD (case insensitive)
-        if [[ "$key" =~ [Ss][Ee][Cc][Rr][Ee][Tt] ]] || [[ "$key" =~ [Kk][Ee][Yy] ]] || [[ "$key" =~ [Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd] ]]; then
+        # Check if variable name contains SECRET, KEY, or PASSWORD (case insensitive) OR if variables are not supported
+        if [[ "$key" =~ [Ss][Ee][Cc][Rr][Ee][Tt] ]] || [[ "$key" =~ [Kk][Ee][Yy] ]] || [[ "$key" =~ [Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd] ]] || [ "$SUPPORTS_VARIABLES" = false ]; then
             echo "Adding secret: $key"
             echo "$value" | gh secret set "$key" --env "$env_name"
             secrets_added=$((secrets_added + 1))
@@ -80,7 +96,11 @@ add_secrets_to_environment() {
         fi
     done < .env
     
-    echo "✅ Added $secrets_added secrets and $vars_added environment variables to $env_name"
+    if [ "$SUPPORTS_VARIABLES" = true ]; then
+        echo "✅ Added $secrets_added secrets and $vars_added environment variables to $env_name"
+    else
+        echo "✅ Added $secrets_added secrets to $env_name"
+    fi
 }
 
 # Function to add repository-level variables
@@ -102,8 +122,8 @@ add_repository_secrets() {
             value=$(echo -e "$value")
         fi
         
-        # Check if variable name contains SECRET, KEY, or PASSWORD (case insensitive)
-        if [[ "$key" =~ [Ss][Ee][Cc][Rr][Ee][Tt] ]] || [[ "$key" =~ [Kk][Ee][Yy] ]] || [[ "$key" =~ [Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd] ]]; then
+        # Check if variable name contains SECRET, KEY, or PASSWORD (case insensitive) OR if variables are not supported
+        if [[ "$key" =~ [Ss][Ee][Cc][Rr][Ee][Tt] ]] || [[ "$key" =~ [Kk][Ee][Yy] ]] || [[ "$key" =~ [Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd] ]] || [ "$SUPPORTS_VARIABLES" = false ]; then
             echo "Adding repository secret: $key"
             echo "$value" | gh secret set "$key"
             secrets_added=$((secrets_added + 1))
@@ -114,7 +134,11 @@ add_repository_secrets() {
         fi
     done < .env
     
-    echo "✅ Added $secrets_added secrets and $vars_added variables to repository"
+    if [ "$SUPPORTS_VARIABLES" = true ]; then
+        echo "✅ Added $secrets_added secrets and $vars_added variables to repository"
+    else
+        echo "✅ Added $secrets_added secrets to repository"
+    fi
 }
 
 # Ask user what they want to do
