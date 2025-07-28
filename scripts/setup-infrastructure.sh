@@ -128,52 +128,26 @@ check_prerequisites() {
     echo -e "${GREEN}✅ All prerequisites met${NC}"
 }
 
-# Function to initialize Terraform backend
-init_terraform_backend() {
-    echo -e "${YELLOW}Initializing Terraform backend...${NC}"
+# Function to clean up and initialize Terraform 
+init_terraform() {
+    echo -e "${YELLOW}Initializing Terraform with clean local state...${NC}"
     
-    local project_name=$(get_json_value config.json ".project.name")
-    local aws_region=$(get_json_value config.json ".aws.region")
-    local bucket_name="$project_name-terraform-state"
+    cd terraform
     
-    echo "Creating S3 bucket for Terraform state: $bucket_name"
+    # Clean up any existing Terraform state/config
+    echo "Cleaning up old Terraform configuration..."
+    rm -rf .terraform
+    rm -f .terraform.lock.hcl
+    rm -f terraform.tfstate*
+    rm -f tfplan*
     
-    # Create S3 bucket
-    aws s3 mb s3://$bucket_name --region $aws_region 2>/dev/null || echo "Bucket already exists"
+    # Fresh initialization with local state
+    echo "Fresh Terraform initialization..."
+    terraform init
     
-    # Enable versioning
-    aws s3api put-bucket-versioning \
-        --bucket $bucket_name \
-        --versioning-configuration Status=Enabled
+    cd ..
     
-    # Enable encryption
-    aws s3api put-bucket-encryption \
-        --bucket $bucket_name \
-        --server-side-encryption-configuration '{
-          "Rules": [
-            {
-              "ApplyServerSideEncryptionByDefault": {
-                "SSEAlgorithm": "AES256"
-              }
-            }
-          ]
-        }'
-    
-    # Block public access
-    aws s3api put-public-access-block \
-        --bucket $bucket_name \
-        --public-access-block-configuration \
-          BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-    
-    # Create DynamoDB table for state locking
-    aws dynamodb create-table \
-        --table-name "$project_name-terraform-locks" \
-        --attribute-definitions AttributeName=LockID,AttributeType=S \
-        --key-schema AttributeName=LockID,KeyType=HASH \
-        --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
-        --region $aws_region 2>/dev/null || echo "DynamoDB table already exists"
-    
-    echo -e "${GREEN}✅ Terraform backend initialized${NC}"
+    echo -e "${GREEN}✅ Terraform initialized with clean local state${NC}"
 }
 
 # Function to create EC2 key pair
@@ -248,11 +222,7 @@ deploy_infrastructure() {
     
     # Initialize Terraform
     echo "Initializing Terraform..."
-    terraform init \
-        -backend-config="bucket=$project_name-terraform-state" \
-        -backend-config="key=terraform.tfstate" \
-        -backend-config="region=$aws_region" \
-        -backend-config="dynamodb_table=$project_name-terraform-locks"
+    terraform init
     
     # Deploy infrastructure for each environment separately
     for env in $environments; do
@@ -460,8 +430,8 @@ main() {
     check_prerequisites
     echo ""
     
-    # Step 2: Initialize Terraform backend
-    init_terraform_backend
+    # Step 2: Initialize Terraform
+    init_terraform
     echo ""
     
     # Step 3: Create EC2 key pair

@@ -65,25 +65,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup variables from GitHub environment
-        id: config
-        env:
-          ENV: ${{ needs.determine-environment.outputs.environment }}
-          PROJECT_NAME: ${{ vars.PROJECT_NAME || secrets.PROJECT_NAME }}
-          AWS_REGION_CONFIG: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
-        run: |
-          echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "aws_region=$AWS_REGION_CONFIG" >> $GITHUB_OUTPUT
-
       - name: Get existing infrastructure info
         id: terraform
         working-directory: terraform
         run: |
-          # Initialize Terraform to read existing state (NOT create infrastructure)
-          terraform init \
-            -backend-config="bucket=${{ steps.config.outputs.project_name }}-terraform-state" \
-            -backend-config="key=${{ needs.determine-environment.outputs.environment }}/terraform.tfstate" \
-            -backend-config="region=${{ steps.config.outputs.aws_region }}"
+          # Initialize Terraform to read existing local state
+          terraform init
           
           # Get outputs from existing infrastructure
           echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
