@@ -189,9 +189,30 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build
+      - name: Read config for backend URL
+        id: config
+        run: |
+          ENV="${{ needs.determine-environment.outputs.environment }}"
+          BACKEND_DOMAIN=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
+          echo "backend_domain=$BACKEND_DOMAIN" >> $GITHUB_OUTPUT
+
+      - name: Build with all environment variables
         working-directory: frontend
-        run: npm run build
+        run: |
+          # Set dynamic backend URL
+          export REACT_APP_BACKEND_URL=https://${{ steps.config.outputs.backend_domain }}
+          
+          # Export all environment variables from GitHub environment
+          # Filter out GitHub Actions system variables but keep everything else
+          printenv | grep -v -E '^(GITHUB_|RUNNER_|CI|HOME|PATH|PWD|SHELL|USER|LANG|LC_|TERM|_)' > ../build.env
+          
+          # Source the environment file and build
+          set -a
+          source ../build.env
+          set +a
+          
+          echo "Building with $(wc -l < ../build.env) environment variables"
+          npm run build
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -202,7 +223,7 @@ jobs:
 
       - name: Deploy to S3
         run: |
-          aws s3 sync frontend/dist/ s3://${{ needs.deploy-infrastructure.outputs.frontend-bucket }}/ --delete
+          aws s3 sync frontend/build/ s3://${{ needs.deploy-infrastructure.outputs.frontend-bucket }}/ --delete
 
       - name: Invalidate CloudFront
         run: |
@@ -224,18 +245,35 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Create .env from GitHub secrets
+      - name: Read config for backend deployment
+        id: config
         run: |
-          # Create .env file with project-specific variables from GitHub secrets
-          # Only include variables that actually exist as secrets
-          touch .env
+          ENV="${{ needs.determine-environment.outputs.environment }}"
+          PROJECT_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+          BACKEND_DOMAIN=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
+          echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+          echo "backend_domain=$BACKEND_DOMAIN" >> $GITHUB_OUTPUT
+
+      - name: Create .env from GitHub environment
+        run: |
+          # Fetch all environment variables and secrets from GitHub environment
+          # This automatically includes all variables set in GitHub Environment settings
           
-          # Add deployment environment info
-          echo "ENVIRONMENT=${{ needs.determine-environment.outputs.environment }}" >> .env
+          # Create base .env file from all current environment variables
+          printenv > .env.tmp
           
-          # Add any project-specific secrets that exist
-          # Note: Only add secrets that your project actually uses
-          # GitHub Actions will fail silently if a secret doesn't exist
+          # Add dynamic environment-specific overrides
+          echo "ALLOWED_HOSTS=${{ steps.config.outputs.backend_domain }},localhost,backend" >> .env.tmp
+          echo "POSTGRES_DB=${{ steps.config.outputs.project_name }}_${{ needs.determine-environment.outputs.environment }}" >> .env.tmp
+          echo "CORS_ALLOWED_ORIGINS=https://${{ steps.config.outputs.backend_domain }}" >> .env.tmp
+          
+          # Filter out GitHub Actions specific variables and system variables
+          grep -v -E '^(GITHUB_|RUNNER_|CI|HOME|PATH|PWD|SHELL|USER|LANG|LC_|TERM|_)' .env.tmp > .env
+          
+          # Clean up
+          rm .env.tmp
+          
+          echo "Generated .env file with $(wc -l < .env) environment variables"
 
       - name: Copy files to EC2
         run: |
@@ -257,8 +295,23 @@ jobs:
           # Deploy application
           ssh -i /tmp/key.pem -o StrictHostKeyChecking=no ubuntu@$INSTANCE_IP << 'EOF'
             cd /opt/app
+            
+            # Stop existing services
             sudo docker-compose down || true
-            sudo docker-compose pull
-            sudo docker-compose up -d
-            sudo systemctl restart app
+            
+            # Remove old containers and images to free space
+            sudo docker system prune -f || true
+            
+            # Build and start services
+            sudo docker-compose up --build -d
+            
+            # Wait for services to be ready
+            sleep 30
+            
+            # Check service status
+            sudo docker-compose ps
+            sudo docker-compose logs --tail=50
+            
+            # Restart nginx to ensure proper proxying
+            sudo systemctl restart nginx
           EOF
