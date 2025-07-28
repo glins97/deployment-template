@@ -1,5 +1,7 @@
 data "aws_route53_zone" "main" {
-  name         = join(".", slice(split(".", var.domain_name), 1, length(split(".", var.domain_name))))
+  # Extract the root domain (last 2 parts) from domain_name
+  # e.g., test-deployment.snowfox-ai.com -> snowfox-ai.com
+  name         = join(".", slice(split(".", var.domain_name), length(split(".", var.domain_name)) - 2, length(split(".", var.domain_name))))
   private_zone = false
 }
 
@@ -19,29 +21,34 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+resource "aws_cloudfront_origin_access_control" "frontend" {
+  name                              = "${var.project_name}-${var.environment}-oac"
+  description                       = "OAC for ${var.project_name} ${var.environment} frontend"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
 }
 
 resource "aws_s3_bucket_policy" "frontend" {
   bucket = aws_s3_bucket.frontend.id
-  depends_on = [aws_s3_bucket_public_access_block.frontend]
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid       = "PublicReadGetObject"
+        Sid       = "AllowCloudFrontServicePrincipal"
         Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.frontend.arn}/*"
-      },
+        Principal = {
+          Service = "cloudfront.amazonaws.com"
+        }
+        Action   = "s3:GetObject"
+        Resource = "${aws_s3_bucket.frontend.arn}/*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = aws_cloudfront_distribution.frontend.arn
+          }
+        }
+      }
     ]
   })
 }
@@ -79,15 +86,9 @@ resource "aws_acm_certificate_validation" "frontend" {
 
 resource "aws_cloudfront_distribution" "frontend" {
   origin {
-    domain_name = aws_s3_bucket_website_configuration.frontend.website_endpoint
-    origin_id   = "S3-${aws_s3_bucket.frontend.bucket}"
-
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
+    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id                = "S3-${aws_s3_bucket.frontend.bucket}"
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
   enabled             = true

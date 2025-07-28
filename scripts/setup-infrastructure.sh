@@ -36,7 +36,6 @@ get_json_value() {
     local key_path="$2"
     
     # Convert dot notation to grep pattern
-    # For simple cases like .project.name, .environments, etc.
     case "$key_path" in
         ".project.name")
             grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$json_file" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
@@ -48,6 +47,44 @@ get_json_value() {
             echo "unknown"
             ;;
     esac
+}
+
+# Function to extract domain for specific environment and service
+get_domain_for_env() {
+    local json_file="$1"
+    local service="$2"  # frontend or backend
+    local env="$3"      # dev, hml, prd
+    
+    # Look for "service": { "domain": { "env": "domain.com" } }
+    # More precise parsing to avoid cross-contamination
+    local service_section=$(sed -n "/\"$service\":/,/^[[:space:]]*}/p" "$json_file")
+    local domain_section=$(echo "$service_section" | sed -n '/\"domain\":/,/}/p')
+    echo "$domain_section" | grep "\"$env\"" | sed "s/.*\"$env\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/" | head -1
+}
+
+# Function to extract instance type for specific environment
+get_instance_type_for_env() {
+    local json_file="$1"
+    local env="$2"
+    
+    # Look for "instance_type": { "env": "type" } more precisely
+    local backend_section=$(sed -n '/\"backend\":/,/^[[:space:]]*}/p' "$json_file")
+    local instance_section=$(echo "$backend_section" | sed -n '/\"instance_type\":/,/}/p')
+    echo "$instance_section" | grep "\"$env\"" | sed "s/.*\"$env\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/" | head -1
+}
+
+# Function to extract environments from config.json
+get_environments() {
+    local json_file="$1"
+    # Extract environments array using basic shell parsing
+    # Look for "environments": ["env1", "env2", "env3"]
+    local env_line=$(grep -A 5 '"environments"' "$json_file" | grep -o '\[.*\]' | head -1)
+    if [ -n "$env_line" ]; then
+        # Remove brackets and quotes, split by comma
+        echo "$env_line" | sed 's/\[//g; s/\]//g; s/"//g; s/,/ /g'
+    else
+        echo "dev hml prd"  # Default fallback
+    fi
 }
 
 # Function to check prerequisites
@@ -76,8 +113,8 @@ check_prerequisites() {
         echo ""
         echo "Please install the missing tools and try again."
         echo "Installation commands:"
-        echo "  Ubuntu/Debian: sudo apt install awscli terraform"
-        echo "  macOS: brew install awscli terraform"
+        echo "  Ubuntu/Debian: sudo apt install awscli terraform gh"
+        echo "  macOS: brew install awscli terraform gh"
         exit 1
     fi
     
@@ -185,6 +222,185 @@ create_ec2_keypair() {
     fi
 }
 
+# Function to deploy infrastructure with Terraform
+deploy_infrastructure() {
+    echo -e "${YELLOW}Deploying infrastructure with Terraform...${NC}"
+    
+    local project_name=$(get_json_value config.json ".project.name")
+    local aws_region=$(get_json_value config.json ".aws.region")
+    
+    # Get environments from config.json
+    local environments=$(get_environments config.json)
+    
+    echo "Deploying infrastructure for environments: $environments"
+    
+    # Change to terraform directory
+    if [ ! -d "terraform" ]; then
+        echo -e "${RED}❌ terraform directory not found${NC}"
+        echo "Please ensure you're running this script from the project root directory."
+        exit 1
+    fi
+    
+    cd terraform
+    
+    # Clean up any existing terraform.tfvars
+    rm -f terraform.tfvars
+    
+    # Initialize Terraform
+    echo "Initializing Terraform..."
+    terraform init \
+        -backend-config="bucket=$project_name-terraform-state" \
+        -backend-config="key=terraform.tfstate" \
+        -backend-config="region=$aws_region" \
+        -backend-config="dynamodb_table=$project_name-terraform-locks"
+    
+    # Deploy infrastructure for each environment separately
+    for env in $environments; do
+        echo "============================================"
+        echo "Deploying infrastructure for environment: $env"
+        echo "============================================"
+        
+        local frontend_domain=$(get_domain_for_env ../config.json "frontend" "$env")
+        local backend_domain=$(get_domain_for_env ../config.json "backend" "$env")
+        local instance_type=$(get_instance_type_for_env ../config.json "$env")
+        
+        # Use default instance type if not found
+        if [ -z "$instance_type" ]; then
+            instance_type="t3.small"
+        fi
+        
+        echo "Configuration for $env:"
+        echo "  Frontend domain: '$frontend_domain'"
+        echo "  Backend domain: '$backend_domain'"
+        echo "  Instance type: '$instance_type'"
+        echo ""
+        
+        # Validate required values
+        if [ -z "$frontend_domain" ] || [ -z "$backend_domain" ]; then
+            echo -e "${RED}❌ Missing domain configuration for environment $env${NC}"
+            echo "Please check your config.json file"
+            cd ..
+            exit 1
+        fi
+        
+        # Create terraform.tfvars for this environment
+        cat > terraform.tfvars << EOF
+# Configuration for environment: $env
+project_name = "$project_name"
+environment = "$env"
+aws_region = "$aws_region"
+frontend_domain = "$frontend_domain"
+backend_domain = "$backend_domain"
+instance_type = "$instance_type"
+key_name = "$project_name-key"
+EOF
+        
+        echo "Generated terraform.tfvars for $env:"
+        cat terraform.tfvars
+        echo ""
+        
+        # Plan infrastructure for this environment
+        echo "Planning infrastructure deployment for $env..."
+        terraform plan -out=tfplan-$env
+        
+        # Ask for confirmation before applying this environment
+        echo ""
+        echo -e "${YELLOW}⚠️ This will create AWS infrastructure for $env environment and may incur costs.${NC}"
+        echo -e "${YELLOW}Review the plan above and confirm you want to proceed.${NC}"
+        echo ""
+        read -p "Do you want to apply these changes for $env? (y/N): " confirm
+        
+        if [[ ! $confirm =~ ^[Yy]$ ]]; then
+            echo "Infrastructure deployment for $env cancelled."
+            continue
+        fi
+        
+        # Apply infrastructure for this environment
+        echo "Applying infrastructure changes for $env..."
+        terraform apply -auto-approve tfplan-$env
+        
+        echo -e "${GREEN}✅ Infrastructure for $env deployed successfully${NC}"
+        echo ""
+    done
+    
+    # Get final outputs (from the last environment deployed)
+    echo "Getting infrastructure outputs..."
+    local outputs=$(terraform output -json)
+    
+    cd ..
+    
+    echo -e "${GREEN}✅ Infrastructure deployed successfully for all environments${NC}"
+    
+    # Update GitHub secrets with infrastructure outputs
+    update_github_secrets_with_outputs "$outputs" "$environments"
+}
+
+# Function to update GitHub secrets with Terraform outputs
+update_github_secrets_with_outputs() {
+    local outputs="$1"
+    local environments="$2"
+    
+    echo -e "${YELLOW}Updating GitHub secrets with infrastructure outputs...${NC}"
+    
+    if ! command_exists "gh" || ! gh auth status &> /dev/null; then
+        echo -e "${YELLOW}⚠️ GitHub CLI not available or not authenticated${NC}"
+        echo "Please manually add the following infrastructure outputs to GitHub secrets:"
+        echo "$outputs"
+        return
+    fi
+    
+    # Function to extract value from JSON using basic shell parsing
+    extract_terraform_output() {
+        local output_json="$1"
+        local key="$2"
+        # Look for "key": { "value": "actual_value" }
+        echo "$output_json" | grep -A 2 "\"$key\"" | grep '"value"' | sed 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | head -1
+    }
+    
+    # Add shared/global infrastructure outputs
+    local vpc_id=$(extract_terraform_output "$outputs" "vpc_id")
+    if [ -n "$vpc_id" ] && [ "$vpc_id" != "null" ]; then
+        gh secret set VPC_ID --body "$vpc_id" && echo "✅ VPC_ID added to GitHub secrets"
+    fi
+    
+    # Add environment-specific outputs
+    for env in $environments; do
+        echo "Processing outputs for environment: $env"
+        
+        # Frontend bucket per environment
+        local frontend_bucket=$(extract_terraform_output "$outputs" "frontend_bucket_${env}")
+        if [ -n "$frontend_bucket" ] && [ "$frontend_bucket" != "null" ]; then
+            gh secret set "FRONTEND_BUCKET_${env^^}" --body "$frontend_bucket" && echo "✅ FRONTEND_BUCKET_${env^^} added to GitHub secrets"
+        fi
+        
+        # CloudFront distribution per environment
+        local cloudfront_id=$(extract_terraform_output "$outputs" "cloudfront_distribution_${env}")
+        if [ -n "$cloudfront_id" ] && [ "$cloudfront_id" != "null" ]; then
+            gh secret set "CLOUDFRONT_DISTRIBUTION_${env^^}" --body "$cloudfront_id" && echo "✅ CLOUDFRONT_DISTRIBUTION_${env^^} added to GitHub secrets"
+        fi
+        
+        # ALB DNS per environment
+        local alb_dns=$(extract_terraform_output "$outputs" "alb_dns_${env}")
+        if [ -n "$alb_dns" ] && [ "$alb_dns" != "null" ]; then
+            gh secret set "ALB_DNS_${env^^}" --body "$alb_dns" && echo "✅ ALB_DNS_${env^^} added to GitHub secrets"
+        fi
+        
+        # Frontend domain per environment
+        local frontend_domain=$(extract_terraform_output "$outputs" "frontend_domain_${env}")
+        if [ -n "$frontend_domain" ] && [ "$frontend_domain" != "null" ]; then
+            gh secret set "FRONTEND_DOMAIN_${env^^}" --body "$frontend_domain" && echo "✅ FRONTEND_DOMAIN_${env^^} added to GitHub secrets"
+        fi
+        
+        # Backend domain per environment
+        local backend_domain=$(extract_terraform_output "$outputs" "backend_domain_${env}")
+        if [ -n "$backend_domain" ] && [ "$backend_domain" != "null" ]; then
+            gh secret set "BACKEND_DOMAIN_${env^^}" --body "$backend_domain" && echo "✅ BACKEND_DOMAIN_${env^^} added to GitHub secrets"
+        fi
+    done
+    
+    echo -e "${GREEN}✅ Infrastructure outputs added to GitHub secrets for all environments${NC}"
+}
+
 # Function to show next steps
 show_next_steps() {
     echo -e "${GREEN}"
@@ -201,20 +417,38 @@ EOF
     echo "✅ Terraform S3 backend bucket"
     echo "✅ DynamoDB table for state locking"
     echo "✅ EC2 key pair for server access"
-    echo "✅ GitHub secrets configured"
+    echo "✅ VPC, subnets, and networking (shared)"
+    
+    # Show environment-specific resources
+    local environments=$(get_environments config.json)
+    
+    echo ""
+    echo -e "${BLUE}Per-environment resources created:${NC}"
+    for env in $environments; do
+        echo "📁 Environment: ${env^^}"
+        echo "   ✅ S3 bucket for frontend"
+        echo "   ✅ CloudFront distribution"
+        echo "   ✅ Application Load Balancer"
+        echo "   ✅ Auto Scaling Group for backend"
+        echo "   ✅ SSL certificates"
+        echo "   ✅ Route53 DNS records"
+    done
+    
+    echo ""
+    echo "✅ GitHub secrets configured with infrastructure outputs"
     echo ""
     echo -e "${BLUE}Next steps:${NC}"
     echo "1. 🚀 Deploy your application:"
     echo "   - Go to Actions tab in your GitHub repository"
-    echo "   - Run 'Deploy Infrastructure and Application' workflow"
-    echo "   - This will deploy the full infrastructure and application"
+    echo "   - Run 'Deploy' workflow"
+    echo "   - This will build and deploy your application to the infrastructure"
     echo ""
     echo "2. 🔧 Monitor deployment:"
     echo "   - Check workflow logs for any issues"
-    echo "   - Verify resources are created in AWS Console"
-    echo "   - Test application endpoints after deployment"
+    echo "   - Verify application is running in AWS Console"
+    echo "   - Test application endpoints"
     echo ""
-    echo -e "${GREEN}Infrastructure ready for application deployment! 🚀${NC}"
+    echo -e "${GREEN}Full infrastructure deployed and ready! 🚀${NC}"
 }
 
 # Main execution
@@ -234,7 +468,11 @@ main() {
     create_ec2_keypair
     echo ""
     
-    # Step 4: Show next steps
+    # Step 4: Deploy infrastructure
+    deploy_infrastructure
+    echo ""
+    
+    # Step 5: Show next steps
     show_next_steps
 }
 

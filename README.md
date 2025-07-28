@@ -18,8 +18,16 @@ Before using this template, ensure you have:
 - [AWS CLI](https://aws.amazon.com/cli/) configured with appropriate permissions
 - [GitHub CLI](https://cli.github.com/) installed and authenticated
 - [Terraform](https://www.terraform.io/) >= 1.0
-- [jq](https://stedolan.github.io/jq/) for JSON processing
 - A domain name with DNS managed by Route 53
+
+**Installation commands:**
+```bash
+# Ubuntu/Debian
+sudo apt install awscli terraform gh
+
+# macOS
+brew install awscli terraform gh
+```
 
 ## 🛠️ Quick Start
 
@@ -54,16 +62,18 @@ Run infrastructure setup locally (requires config.json):
 ./setup.sh infrastructure
 ```
 
-This creates:
+This creates and deploys:
 - Terraform S3 backend bucket with versioning and encryption
 - DynamoDB table for state locking
 - EC2 key pairs and uploads them to GitHub secrets
+- **Complete AWS infrastructure**: VPC, subnets, S3, CloudFront, ALB, Auto Scaling
+- Updates GitHub secrets with infrastructure outputs
 
 ### 3. Deploy Application
 
 1. After local infrastructure setup completes
 2. Go to GitHub Actions and run the **"Deploy"** workflow
-3. Your application will be deployed to all environments
+3. Your application code will be deployed to the existing infrastructure
 
 ## 📁 Project Structure
 
@@ -127,7 +137,7 @@ Steps:
 2. **Deploy Frontend**: Build React app → Deploy to S3 → Invalidate CloudFront
 3. **Deploy Backend**: Build Docker images → Deploy to EC2
 
-**Note**: Infrastructure setup (S3 backend, EC2 keys, etc.) must be completed locally before running this workflow.
+**Note**: Infrastructure setup must be completed locally first (`./setup.sh infrastructure`). This workflow deploys application code to the existing infrastructure.
 
 ## 🔐 Environment Management
 
@@ -239,6 +249,11 @@ docker-compose logs -f
    - The scripts automatically detect GitHub CLI capabilities
    - If `gh variable` isn't available, everything is stored as secrets
    - Update GitHub CLI for variable support: `gh extension upgrade cli`
+
+6. **JSON parsing without jq**:
+   - Scripts use basic shell parsing (grep/sed) for JSON
+   - No external dependencies required
+   - If parsing fails, check config.json formatting
 
 ### Cleanup Resources
 To destroy all infrastructure:

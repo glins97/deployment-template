@@ -1,5 +1,7 @@
 data "aws_route53_zone" "main" {
-  name         = join(".", slice(split(".", var.domain_name), 1, length(split(".", var.domain_name))))
+  # Extract the root domain (last 2 parts) from domain_name
+  # e.g., backend.test-deployment.snowfox-ai.com -> snowfox-ai.com
+  name         = join(".", slice(split(".", var.domain_name), length(split(".", var.domain_name)) - 2, length(split(".", var.domain_name))))
   private_zone = false
 }
 
