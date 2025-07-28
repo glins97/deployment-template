@@ -40,12 +40,13 @@ jobs:
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
 
-  deploy-infrastructure:
+  get-infrastructure-info:
     needs: determine-environment
     runs-on: ubuntu-latest
     environment: ${{ needs.determine-environment.outputs.environment }}
     outputs:
       frontend-bucket: ${{ steps.terraform.outputs.frontend_bucket_name }}
+      frontend-cloudfront-id: ${{ steps.terraform.outputs.frontend_cloudfront_id }}
       backend-instance-id: ${{ steps.terraform.outputs.backend_instance_id }}
     steps:
       - name: Checkout
@@ -64,114 +65,33 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Read config and setup variables
+      - name: Setup variables from GitHub environment
         id: config
+        env:
+          ENV: ${{ needs.determine-environment.outputs.environment }}
+          PROJECT_NAME: ${{ vars.PROJECT_NAME || secrets.PROJECT_NAME }}
+          AWS_REGION_CONFIG: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
         run: |
-          ENV="${{ needs.determine-environment.outputs.environment }}"
-          # Extract values using basic shell parsing (no jq dependency)
-          PROJECT_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-          AWS_REGION=$(grep -o '"region"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-          
-          if [ "$ENV" = "prd" ]; then
-            FRONTEND_DOMAIN=$(grep -A 10 '"frontend"' config.json | grep -A 5 '"domain"' | grep '"prd"' | sed 's/.*"prd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-            BACKEND_DOMAIN=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep '"prd"' | sed 's/.*"prd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-            INSTANCE_TYPE=$(grep -A 15 '"backend"' config.json | grep -A 5 '"instance_type"' | grep '"prd"' | sed 's/.*"prd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-          else
-            FRONTEND_DOMAIN=$(grep -A 10 '"frontend"' config.json | grep -A 5 '"domain"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
-            BACKEND_DOMAIN=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
-            INSTANCE_TYPE=$(grep -A 15 '"backend"' config.json | grep -A 5 '"instance_type"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
-          fi
-          
           echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "frontend_domain=$FRONTEND_DOMAIN" >> $GITHUB_OUTPUT
-          echo "backend_domain=$BACKEND_DOMAIN" >> $GITHUB_OUTPUT
-          echo "instance_type=$INSTANCE_TYPE" >> $GITHUB_OUTPUT
-          echo "aws_region=$AWS_REGION" >> $GITHUB_OUTPUT
+          echo "aws_region=$AWS_REGION_CONFIG" >> $GITHUB_OUTPUT
 
-      - name: Validate Route53 Hosted Zones
-        run: |
-          echo "🔍 Checking Route53 hosted zones for domains..."
-          
-          FRONTEND_DOMAIN="${{ steps.config.outputs.frontend_domain }}"
-          BACKEND_DOMAIN="${{ steps.config.outputs.backend_domain }}"
-          
-          # Extract root domains from subdomains
-          FRONTEND_ROOT_DOMAIN=$(echo "$FRONTEND_DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
-          BACKEND_ROOT_DOMAIN=$(echo "$BACKEND_DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
-          
-          echo "Frontend domain: $FRONTEND_DOMAIN (root: $FRONTEND_ROOT_DOMAIN)"
-          echo "Backend domain: $BACKEND_DOMAIN (root: $BACKEND_ROOT_DOMAIN)"
-          
-          # Check if hosted zones exist
-          check_hosted_zone() {
-            local domain=$1
-            local zone_info=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${domain}.' || Name=='${domain}']" --output json)
-            if [ -z "$zone_info" ] || [ "$zone_info" = "[]" ] || ! echo "$zone_info" | grep -q '"Id"'; then
-              echo "❌ ERROR: Route53 hosted zone for '$domain' not found!"
-              echo "Please create a hosted zone for '$domain' in Route53 before proceeding."
-              echo "You can create it manually in AWS Console or use:"
-              echo "aws route53 create-hosted-zone --name $domain --caller-reference $(date +%s)"
-              return 1
-            else
-              local zone_id=$(echo "$zone_info" | jq -r '.[0].Id' | sed 's|/hostedzone/||')
-              echo "✅ Hosted zone for '$domain' found (ID: $zone_id)"
-              return 0
-            fi
-          }
-          
-          # Validate both domains
-          FRONTEND_CHECK=0
-          BACKEND_CHECK=0
-          
-          check_hosted_zone "$FRONTEND_ROOT_DOMAIN" || FRONTEND_CHECK=1
-          check_hosted_zone "$BACKEND_ROOT_DOMAIN" || BACKEND_CHECK=1
-          
-          if [ $FRONTEND_CHECK -ne 0 ] || [ $BACKEND_CHECK -ne 0 ]; then
-            echo ""
-            echo "❌ One or more required hosted zones are missing."
-            echo ""
-            echo "📋 Current hosted zones in your AWS account:"
-            aws route53 list-hosted-zones --query 'HostedZones[].{Name:Name,ID:Id}' --output table || echo "Unable to list hosted zones"
-            echo ""
-            echo "Please create the missing hosted zones in Route53 and update your domain's nameservers."
-            exit 1
-          fi
-          
-          echo ""
-          echo "✅ All required hosted zones are available!"
-
-      - name: Terraform Init
+      - name: Get existing infrastructure info
+        id: terraform
         working-directory: terraform
         run: |
+          # Initialize Terraform to read existing state (NOT create infrastructure)
           terraform init \
             -backend-config="bucket=${{ steps.config.outputs.project_name }}-terraform-state" \
             -backend-config="key=${{ needs.determine-environment.outputs.environment }}/terraform.tfstate" \
             -backend-config="region=${{ steps.config.outputs.aws_region }}"
-
-      - name: Terraform Plan
-        working-directory: terraform
-        run: |
-          terraform plan \
-            -var="project_name=${{ steps.config.outputs.project_name }}" \
-            -var="environment=${{ needs.determine-environment.outputs.environment }}" \
-            -var="aws_region=${{ steps.config.outputs.aws_region }}" \
-            -var="frontend_domain=${{ steps.config.outputs.frontend_domain }}" \
-            -var="backend_domain=${{ steps.config.outputs.backend_domain }}" \
-            -var="instance_type=${{ steps.config.outputs.instance_type }}" \
-            -var="key_name=${{ secrets.EC2_KEY_NAME }}" \
-            -out=tfplan
-
-      - name: Terraform Apply
-        id: terraform
-        working-directory: terraform
-        run: |
-          terraform apply tfplan
           
+          # Get outputs from existing infrastructure
           echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
+          echo "frontend_cloudfront_id=$(terraform output -raw frontend_cloudfront_id)" >> $GITHUB_OUTPUT
           echo "backend_instance_id=$(terraform output -raw backend_instance_id)" >> $GITHUB_OUTPUT
 
   deploy-frontend:
-    needs: [determine-environment, deploy-infrastructure]
+    needs: [determine-environment, get-infrastructure-info]
     runs-on: ubuntu-latest
     environment: ${{ needs.determine-environment.outputs.environment }}
     steps:
@@ -189,19 +109,9 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Read config for backend URL
-        id: config
-        run: |
-          ENV="${{ needs.determine-environment.outputs.environment }}"
-          BACKEND_DOMAIN=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
-          echo "backend_domain=$BACKEND_DOMAIN" >> $GITHUB_OUTPUT
-
       - name: Build with all environment variables
         working-directory: frontend
         run: |
-          # Set dynamic backend URL
-          export REACT_APP_BACKEND_URL=https://${{ steps.config.outputs.backend_domain }}
-          
           # Export all environment variables from GitHub environment
           # Filter out GitHub Actions system variables but keep everything else
           printenv | grep -v -E '^(GITHUB_|RUNNER_|CI|HOME|PATH|PWD|SHELL|USER|LANG|LC_|TERM|_)' > ../build.env
@@ -223,15 +133,14 @@ jobs:
 
       - name: Deploy to S3
         run: |
-          aws s3 sync frontend/build/ s3://${{ needs.deploy-infrastructure.outputs.frontend-bucket }}/ --delete
+          aws s3 sync frontend/build/ s3://${{ needs.get-infrastructure-info.outputs.frontend-bucket }}/ --delete
 
       - name: Invalidate CloudFront
         run: |
-          DISTRIBUTION_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items[0]=='${{ steps.config.outputs.frontend_domain }}'].Id" --output text)
-          aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+          aws cloudfront create-invalidation --distribution-id ${{ needs.get-infrastructure-info.outputs.frontend-cloudfront-id }} --paths "/*"
 
   deploy-backend:
-    needs: [determine-environment, deploy-infrastructure]
+    needs: [determine-environment, get-infrastructure-info]
     runs-on: ubuntu-latest
     environment: ${{ needs.determine-environment.outputs.environment }}
     steps:
@@ -245,33 +154,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Read config for backend deployment
-        id: config
-        run: |
-          ENV="${{ needs.determine-environment.outputs.environment }}"
-          PROJECT_NAME=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' config.json | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-          BACKEND_DOMAIN=$(grep -A 15 '"backend"' config.json | grep -A 5 '"domain"' | grep "\"$ENV\"" | sed "s/.*\"$ENV\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/")
-          echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "backend_domain=$BACKEND_DOMAIN" >> $GITHUB_OUTPUT
-
       - name: Create .env from GitHub environment
         run: |
-          # Fetch all environment variables and secrets from GitHub environment
-          # This automatically includes all variables set in GitHub Environment settings
-          
-          # Create base .env file from all current environment variables
-          printenv > .env.tmp
-          
-          # Add dynamic environment-specific overrides
-          echo "ALLOWED_HOSTS=${{ steps.config.outputs.backend_domain }},localhost,backend" >> .env.tmp
-          echo "POSTGRES_DB=${{ steps.config.outputs.project_name }}_${{ needs.determine-environment.outputs.environment }}" >> .env.tmp
-          echo "CORS_ALLOWED_ORIGINS=https://${{ steps.config.outputs.backend_domain }}" >> .env.tmp
-          
-          # Filter out GitHub Actions specific variables and system variables
-          grep -v -E '^(GITHUB_|RUNNER_|CI|HOME|PATH|PWD|SHELL|USER|LANG|LC_|TERM|_)' .env.tmp > .env
-          
-          # Clean up
-          rm .env.tmp
+          # Create .env file from all GitHub environment variables and secrets
+          # Filter out GitHub Actions system variables but keep everything else
+          printenv | grep -v -E '^(GITHUB_|RUNNER_|CI|HOME|PATH|PWD|SHELL|USER|LANG|LC_|TERM|_)' > .env
           
           echo "Generated .env file with $(wc -l < .env) environment variables"
 
@@ -279,7 +166,7 @@ jobs:
         run: |
           # Get EC2 instance IP
           INSTANCE_IP=$(aws ec2 describe-instances \
-            --instance-ids ${{ needs.deploy-infrastructure.outputs.backend-instance-id }} \
+            --instance-ids ${{ needs.get-infrastructure-info.outputs.backend-instance-id }} \
             --query 'Reservations[0].Instances[0].PrivateIpAddress' \
             --output text)
           
