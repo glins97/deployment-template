@@ -13,8 +13,8 @@ config.json
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
-*.tfplan
-*.tfvars
+*tfplan*
+*tfvars*
 
 # AWS
 .aws/
