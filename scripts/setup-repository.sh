@@ -358,10 +358,9 @@ EOF
         fi
     }
     
-    # Create environments and add secrets
+    # Create environments (without secrets)
     for env in "${environments[@]}"; do
         create_environment "$env"
-        add_environment_secrets "$env"
         echo ""
     done
     
@@ -635,11 +634,15 @@ main() {
     setup_deployment_secrets
     echo ""
     
-    # Step 7: Upload project variables/secrets
-    echo -e "${YELLOW}Would you like to upload project variables/secrets from .env to GitHub now? (y/n)${NC}"
+    # Step 7: Upload project variables/secrets to environments
+    echo -e "${YELLOW}Would you like to upload project variables/secrets from .env to GitHub environments now? (y/n)${NC}"
+    echo -e "${BLUE}Note: This will upload all variables from .env to the dev, hml, and prd environments${NC}"
     read -p "> " upload_now
     if [[ $upload_now =~ ^[Yy]$ ]]; then
         upload_secrets
+        echo ""
+    else
+        echo -e "${YELLOW}⚠️ Skipped secrets upload. You can run this manually later or add secrets via GitHub UI.${NC}"
         echo ""
     fi
     
