@@ -9,12 +9,14 @@
 config.json
 
 # Terraform
-*.tfstate
-*.tfstate.*
+terraform.tfstate
+terraform.tfstate.backup
 .terraform/
 .terraform.lock.hcl
 *tfplan*
 *tfvars*
+# Allow workspace state files for GitHub Actions
+!terraform.tfstate.d/
 
 # AWS
 .aws/
