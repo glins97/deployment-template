@@ -69,13 +69,13 @@ jobs:
         id: terraform
         working-directory: terraform
         run: |
-          # Initialize Terraform to read existing local state
+          # Initialize Terraform to read existing state
           terraform init
           
           # Get outputs from existing infrastructure
-          echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
-          echo "frontend_cloudfront_id=$(terraform output -raw frontend_cloudfront_id)" >> $GITHUB_OUTPUT
-          echo "backend_instance_id=$(terraform output -raw backend_instance_id)" >> $GITHUB_OUTPUT
+          echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          echo "frontend_cloudfront_id=$(terraform output -raw frontend_cloudfront_id 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          echo "backend_instance_id=$(terraform output -raw backend_instance_id 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
 
   deploy-frontend:
     needs: [determine-environment, get-infrastructure-info]
