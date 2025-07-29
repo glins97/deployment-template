@@ -134,11 +134,11 @@ init_terraform() {
     
     cd terraform
     
-    # Clean up any existing Terraform state/config
+    # Clean up any existing Terraform state/config (preserve workspaces)
     echo "Cleaning up old Terraform configuration..."
     rm -rf .terraform
     rm -f .terraform.lock.hcl
-    rm -f terraform.tfstate*
+    rm -f terraform.tfstate terraform.tfstate.backup
     rm -f tfplan*
     
     # Fresh initialization with local state
