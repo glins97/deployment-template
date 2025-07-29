@@ -269,6 +269,16 @@ EOF
         cat terraform.tfvars
         echo ""
         
+        # Create or select workspace for this environment
+        echo "Setting up workspace for environment: $env"
+        if terraform workspace list | grep -q "^[[:space:]]*$env[[:space:]]*$"; then
+            echo "Switching to existing workspace: $env"
+            terraform workspace select $env
+        else
+            echo "Creating new workspace: $env"
+            terraform workspace new $env
+        fi
+        
         # Plan infrastructure for this environment
         echo "Planning infrastructure deployment for $env..."
         terraform plan -out=tfplan-$env

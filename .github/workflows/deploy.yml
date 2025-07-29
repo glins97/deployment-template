@@ -72,6 +72,9 @@ jobs:
           # Initialize Terraform to read existing state
           terraform init
           
+          # Select workspace for the environment
+          terraform workspace select ${{ needs.determine-environment.outputs.environment }} || echo "Workspace doesn't exist yet"
+          
           # Get outputs from existing infrastructure
           echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
           echo "frontend_cloudfront_id=$(terraform output -raw frontend_cloudfront_id 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
