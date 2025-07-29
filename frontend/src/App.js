@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 function App() {
@@ -8,7 +8,7 @@ function App() {
 
   const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
 
-  const checkBackendHealth = async () => {
+  const checkBackendHealth = useCallback(async () => {
     setLoading(true);
     setError(null);
     
@@ -21,11 +21,11 @@ function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [backendUrl]);
 
   useEffect(() => {
     checkBackendHealth();
-  }, []);
+  }, [checkBackendHealth]);
 
   return (
     <div className="App">
