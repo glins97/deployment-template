@@ -154,10 +154,10 @@ jobs:
 
       - name: Copy files to EC2
         run: |
-          # Get EC2 instance IP
+          # Get EC2 instance public IP
           INSTANCE_IP=$(aws ec2 describe-instances \
             --instance-ids ${{ needs.get-infrastructure-info.outputs.backend-instance-id }} \
-            --query 'Reservations[0].Instances[0].PrivateIpAddress' \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
             --output text)
           
           # Create SSH key file

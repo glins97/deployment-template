@@ -182,11 +182,12 @@ resource "aws_lb_listener" "redirect" {
 }
 
 resource "aws_instance" "main" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type
-  key_name               = var.key_name
-  vpc_security_group_ids = [aws_security_group.ec2.id]
-  subnet_id              = var.private_subnets[0]
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.instance_type
+  key_name                    = var.key_name
+  vpc_security_group_ids      = [aws_security_group.ec2.id]
+  subnet_id                   = var.public_subnets[0]
+  associate_public_ip_address = true
 
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
     project_name = var.project_name
