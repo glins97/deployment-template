@@ -262,15 +262,24 @@ generate_ssh_key() {
         print_status "Debug: Temp key file size: $TEMP_KEY_SIZE bytes"
         
         # Set secret from file to preserve formatting (pipe the file content)
-        cat "$SSH_DIR/temp_private_key" | gh secret set "EC2_PRIVATE_KEY" \
-            --env "$env" \
-            --body -
+        print_status "Debug: About to set secret using cat + pipe"
         
-        if [ $? -eq 0 ]; then
+        # Try the secret setting with verbose output
+        if cat "$SSH_DIR/temp_private_key" | gh secret set "EC2_PRIVATE_KEY" \
+            --env "$env" \
+            --body - 2>&1; then
             print_status "✅ SSH private key set for environment $env"
         else
+            EXIT_CODE=$?
             print_error "❌ Failed to set SSH private key for environment $env"
-            print_error "Debug: gh secret set exit code: $?"
+            print_error "Debug: gh secret set exit code: $EXIT_CODE"
+            print_error "Debug: Checking if we can read the temp file:"
+            if [ -f "$SSH_DIR/temp_private_key" ]; then
+                print_error "Debug: Temp file exists, size: $(wc -c < "$SSH_DIR/temp_private_key") bytes"
+                print_error "Debug: First 100 chars: $(head -c 100 "$SSH_DIR/temp_private_key")"
+            else
+                print_error "Debug: Temp file does not exist!"
+            fi
             rm -rf "$SSH_DIR"
             exit 1
         fi

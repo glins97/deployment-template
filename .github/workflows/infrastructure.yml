@@ -153,9 +153,7 @@ jobs:
             echo "🚀 Creating EC2 Key Pair: $KEY_NAME"
             
             # Write private key to file, preserving all line endings
-            cat > /tmp/private_key.pem << 'EOF'
-${{ secrets.EC2_PRIVATE_KEY }}
-EOF
+            echo "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/private_key.pem
             chmod 600 /tmp/private_key.pem
             
             # Validate private key
