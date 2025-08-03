@@ -54,8 +54,8 @@ locals {
   api_domain      = var.environment == "prd" ? var.domain : "${var.environment}.${var.domain}"
 
   # VPC configuration - use existing or new VPC
-  use_existing_vpc = var.vpc_id != null
-  vpc_id           = local.use_existing_vpc ? var.vpc_id : module.vpc[0].vpc_id
+  use_existing_vpc  = var.vpc_id != null
+  vpc_id            = local.use_existing_vpc ? var.vpc_id : module.vpc[0].vpc_id
   public_subnet_ids = local.use_existing_vpc ? data.aws_subnets.existing[0].ids : module.vpc[0].public_subnet_ids
 
   common_tags = {
