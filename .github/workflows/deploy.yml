@@ -18,9 +18,6 @@ on:
           - hml
           - prd
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-
 jobs:
   determine-environment:
     runs-on: ubuntu-latest
@@ -54,6 +51,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read project config
+        id: config
+        run: |
+          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          DOMAIN=$(jq -r '.project.domain' config.json)
+          REGION=$(jq -r '.aws.region' config.json)
+          
+          echo "project_name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
+          echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
+          echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -65,18 +73,29 @@ jobs:
         with:
           aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}
 
       - name: Get existing infrastructure info
         id: terraform
         working-directory: terraform
         run: |
+          # Set fallback values
+          PROJECT_NAME="${{ vars.PROJECT_NAME }}"
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME="${{ steps.config.outputs.project_name }}"
+          fi
+          
+          AWS_REGION="${{ vars.AWS_REGION }}"
+          if [ -z "$AWS_REGION" ]; then
+            AWS_REGION="${{ steps.config.outputs.aws_region }}"
+          fi
+          
           # Initialize Terraform to read existing state
           terraform init \
-            -backend-config="bucket=${{ vars.PROJECT_NAME }}-terraform-state" \
+            -backend-config="bucket=${PROJECT_NAME}-terraform-state" \
             -backend-config="key=${{ needs.determine-environment.outputs.environment }}/terraform.tfstate" \
-            -backend-config="region=${{ vars.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ vars.PROJECT_NAME }}-terraform-locks"
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${PROJECT_NAME}-terraform-locks"
           
           # Select workspace for the environment
           terraform workspace select ${{ needs.determine-environment.outputs.environment }}
@@ -127,12 +146,18 @@ jobs:
           ls -la build/
           echo "Build completed successfully"
 
+      - name: Read project config
+        id: config
+        run: |
+          REGION=$(jq -r '.aws.region' config.json)
+          echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}
 
       - name: Deploy to S3
         run: |
@@ -165,12 +190,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read project config
+        id: config
+        run: |
+          REGION=$(jq -r '.aws.region' config.json)
+          echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}
 
       - name: Create .env file from secrets
         run: |
