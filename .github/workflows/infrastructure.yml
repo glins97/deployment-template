@@ -70,28 +70,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug AWS Credentials Before Action
+      - name: Debug Setup Info
         run: |
-          echo "🔍 Debugging credentials before AWS action..."
-          echo "Access Key ID starts with: $(echo '${{ secrets.AWS_ACCESS_KEY_ID }}' | cut -c1-8)..."
-          echo "Secret Key length: $(echo '${{ secrets.AWS_SECRET_ACCESS_KEY }}' | wc -c) characters"
-          echo "Secret Key ends with: ...$(echo '${{ secrets.AWS_SECRET_ACCESS_KEY }}' | tail -c 5)"
+          echo "🔍 Setting up AWS infrastructure..."
+          echo "Project: ${{ vars.PROJECT_NAME }}"
+          echo "Environment: ${{ github.environment }}"
           echo "Region: ${{ vars.AWS_REGION }}"
-
-      - name: Test AWS with Environment Variables
-        run: |
-          echo "🧪 Testing AWS credentials with direct environment variables..."
-          export AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
-          export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-          export AWS_DEFAULT_REGION="${{ vars.AWS_REGION }}"
-          
-          echo "Debug: Region set to: $AWS_DEFAULT_REGION"
-          echo "Debug: AWS CLI version: $(aws --version)"
-          
-          # Test AWS credentials directly
-          aws sts get-caller-identity
-          
-          echo "✅ Direct AWS credentials work!"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

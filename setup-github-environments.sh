@@ -153,10 +153,13 @@ set_environment_secrets() {
             for env in "${ENVIRONMENTS[@]}"; do
                 print_status "Setting secret $key for environment $env"
                 
-                # Use echo -n to avoid newlines and ensure clean base64 encoding
-                echo -n "$value" | gh secret set "$key" \
+                # Use a temporary file to ensure exact byte-for-byte storage
+                temp_file=$(mktemp)
+                printf "%s" "$value" > "$temp_file"
+                gh secret set "$key" \
                     --env "$env" \
-                    --body -
+                    --body-file "$temp_file"
+                rm -f "$temp_file"
                 
                 # Verify the secret was set (only for AWS credentials to avoid spam)
                 if [[ "$key" =~ ^AWS_ ]]; then
