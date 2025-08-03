@@ -153,29 +153,24 @@ set_environment_secrets() {
             for env in "${ENVIRONMENTS[@]}"; do
                 print_status "Setting secret $key for environment $env"
                 
-                # For AWS credentials, use base64 encoding to avoid character encoding issues
+                # For AWS credentials, store as environment variables (visible)
                 if [[ "$key" =~ ^AWS_ ]]; then
-                    # Store base64 encoded version
-                    encoded_value=$(echo -n "$value" | base64)
-                    printf "%s" "$encoded_value" | gh secret set "${key}_B64" \
-                        --env "$env" \
-                        --body -
-                    print_status "AWS credential $key stored as base64 encoded ${key}_B64"
+                    # Store as environment variable instead of secret for visibility
+                    gh variable set "$key" --env "$env" --body "$value"
+                    print_status "AWS credential $key stored as environment variable (visible)"
+                    
+                    # Verify the variable was set
+                    if gh variable list --env "$env" | grep -q "^$key"; then
+                        print_status "✅ AWS variable $key verified for $env"
+                    else
+                        print_error "❌ Failed to set AWS variable $key for $env"
+                        exit 1
+                    fi
                 else
                     # Use printf with explicit binary mode to avoid encoding issues
                     printf "%s" "$value" | gh secret set "$key" \
                         --env "$env" \
                         --body -
-                fi
-                
-                # Verify the secret was set (only for AWS credentials to avoid spam)
-                if [[ "$key" =~ ^AWS_ ]]; then
-                    if gh secret list --env "$env" | grep -q "^$key"; then
-                        print_status "✅ AWS secret $key verified for $env"
-                    else
-                        print_error "❌ Failed to set AWS secret $key for $env"
-                        exit 1
-                    fi
                 fi
             done
         fi

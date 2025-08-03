@@ -60,26 +60,11 @@ jobs:
           terraform_version: 1.6.0
           terraform_wrapper: false
 
-      - name: Decode AWS Credentials
-        run: |
-          echo "🔓 Decoding base64 AWS credentials..."
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID_B64 }}" ]; then
-            echo "❌ AWS_ACCESS_KEY_ID_B64 secret is missing or empty"
-            exit 1
-          fi
-          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}" ]; then
-            echo "❌ AWS_SECRET_ACCESS_KEY_B64 secret is missing or empty" 
-            exit 1
-          fi
-          echo "AWS_ACCESS_KEY_ID=$(echo '${{ secrets.AWS_ACCESS_KEY_ID_B64 }}' | base64 -d)" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$(echo '${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}' | base64 -d)" >> $GITHUB_ENV
-          echo "✅ AWS credentials decoded successfully"
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Get existing infrastructure info
@@ -142,26 +127,11 @@ jobs:
           ls -la build/
           echo "Build completed successfully"
 
-      - name: Decode AWS Credentials
-        run: |
-          echo "🔓 Decoding base64 AWS credentials..."
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID_B64 }}" ]; then
-            echo "❌ AWS_ACCESS_KEY_ID_B64 secret is missing or empty"
-            exit 1
-          fi
-          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}" ]; then
-            echo "❌ AWS_SECRET_ACCESS_KEY_B64 secret is missing or empty" 
-            exit 1
-          fi
-          echo "AWS_ACCESS_KEY_ID=$(echo '${{ secrets.AWS_ACCESS_KEY_ID_B64 }}' | base64 -d)" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$(echo '${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}' | base64 -d)" >> $GITHUB_ENV
-          echo "✅ AWS credentials decoded successfully"
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy to S3
@@ -195,26 +165,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Decode AWS Credentials
-        run: |
-          echo "🔓 Decoding base64 AWS credentials..."
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID_B64 }}" ]; then
-            echo "❌ AWS_ACCESS_KEY_ID_B64 secret is missing or empty"
-            exit 1
-          fi
-          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}" ]; then
-            echo "❌ AWS_SECRET_ACCESS_KEY_B64 secret is missing or empty" 
-            exit 1
-          fi
-          echo "AWS_ACCESS_KEY_ID=$(echo '${{ secrets.AWS_ACCESS_KEY_ID_B64 }}' | base64 -d)" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$(echo '${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}' | base64 -d)" >> $GITHUB_ENV
-          echo "✅ AWS credentials decoded successfully"
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Create .env file from secrets
