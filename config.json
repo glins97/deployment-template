@@ -1,0 +1,26 @@
+{
+  "project": {
+    "name": "my-fullstack-app",
+    "description": "Full stack application deployment template",
+    "domain": "my.domain.com"
+  },
+  "aws": {
+    "region": "us-east-1",
+    "profile": "default"
+  },
+  "environments": ["prd"],
+  "infrastructure": {
+    "instance_types": {
+      "dev": "t4g.micro",
+      "hml": "t4g.micro", 
+      "prd": "t4g.small"
+    }
+  },
+  "deployment": {
+    "branches": {
+      "production": "prd",
+      "staging": "hml", 
+      "development": "dev"
+    }
+  }
+}

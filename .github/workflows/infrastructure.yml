@@ -152,8 +152,25 @@ jobs:
           if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" 2>/dev/null; then
             echo "🚀 Creating EC2 Key Pair: $KEY_NAME"
             
-            # Decode base64-encoded private key and write to file
-            echo "${{ secrets.EC2_PRIVATE_KEY }}" | base64 -d > /tmp/private_key.pem
+            # Debug: Check what we're getting from the secret
+            echo "Debug: EC2_PRIVATE_KEY secret length: ${#{{ secrets.EC2_PRIVATE_KEY }}}"
+            echo "Debug: First 50 chars of secret: ${{ secrets.EC2_PRIVATE_KEY }}" | head -c 50
+            
+            # Write the secret to a temp file first for debugging
+            echo "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/raw_secret.txt
+            echo "Debug: Raw secret file size: $(wc -c < /tmp/raw_secret.txt) bytes"
+            echo "Debug: Raw secret file first line: $(head -1 /tmp/raw_secret.txt)"
+            
+            # Try to decode base64-encoded private key
+            if echo "${{ secrets.EC2_PRIVATE_KEY }}" | base64 -d > /tmp/private_key.pem 2>/tmp/base64_error.log; then
+              echo "✅ Base64 decode successful"
+            else
+              echo "❌ Base64 decode failed:"
+              cat /tmp/base64_error.log
+              echo "Debug: Trying to validate if secret contains valid base64..."
+              echo "${{ secrets.EC2_PRIVATE_KEY }}" | base64 -d -i > /tmp/private_key.pem 2>/tmp/base64_error2.log || true
+            fi
+            
             chmod 600 /tmp/private_key.pem
             
             # Validate private key
