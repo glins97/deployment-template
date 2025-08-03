@@ -157,11 +157,29 @@ set_environment_variables_from_env() {
                 gh variable set "$key" --env "$env" --body "$value"
                 print_status "Variable $key stored as environment variable (visible)"
                 
-                # Verify the variable was set
-                if gh variable list --env "$env" | grep -q "^$key"; then
-                    print_status "✅ Variable $key verified for $env"
-                else
-                    print_error "❌ Failed to set variable $key for $env"
+                # Verify the variable was set with retry logic for GitHub API propagation
+                local max_attempts=5
+                local attempt=1
+                local verified=false
+                
+                while [ $attempt -le $max_attempts ]; do
+                    if [ $attempt -gt 1 ]; then
+                        print_status "Retrying verification (attempt $attempt/$max_attempts)..."
+                        sleep 2  # Wait 2 seconds before retry
+                    fi
+                    
+                    if gh variable list --env "$env" | grep -q "^$key"; then
+                        print_status "✅ Variable $key verified for $env"
+                        verified=true
+                        break
+                    fi
+                    
+                    attempt=$((attempt + 1))
+                done
+                
+                if [ "$verified" = false ]; then
+                    print_error "❌ Failed to set variable $key for $env after $max_attempts attempts"
+                    print_error "This may be a GitHub API issue. Try running the script again."
                     exit 1
                 fi
             done
@@ -278,11 +296,29 @@ generate_ssh_key() {
             exit 1
         fi
         
-        # Validate the variable was stored
-        if gh variable list --env "$env" | grep -q "EC2_PRIVATE_KEY"; then
-            print_status "✅ SSH key variable verified for environment $env"
-        else
-            print_error "❌ SSH key variable not found after setting for environment $env"
+        # Validate the variable was stored with retry logic
+        local max_attempts=5
+        local attempt=1
+        local verified=false
+        
+        while [ $attempt -le $max_attempts ]; do
+            if [ $attempt -gt 1 ]; then
+                print_status "Retrying SSH key verification (attempt $attempt/$max_attempts)..."
+                sleep 2  # Wait 2 seconds before retry
+            fi
+            
+            if gh variable list --env "$env" | grep -q "EC2_PRIVATE_KEY"; then
+                print_status "✅ SSH key variable verified for environment $env"
+                verified=true
+                break
+            fi
+            
+            attempt=$((attempt + 1))
+        done
+        
+        if [ "$verified" = false ]; then
+            print_error "❌ SSH key variable not found after setting for environment $env after $max_attempts attempts"
+            print_error "This may be a GitHub API issue. Try running the script again."
             rm -rf "$SSH_DIR"
             exit 1
         fi
