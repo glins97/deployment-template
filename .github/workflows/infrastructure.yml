@@ -362,9 +362,27 @@ jobs:
       - name: Terraform Plan
         id: plan
         run: |
+          # Run terraform plan with detailed exit codes
+          # Exit code 0 = No changes, Exit code 1 = Error, Exit code 2 = Changes present
+          set +e  # Don't exit on error
           terraform plan -detailed-exitcode -out=tfplan
-          echo "plan_exitcode=$?" >> $GITHUB_OUTPUT
-        continue-on-error: true
+          PLAN_EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          
+          echo "plan_exitcode=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Handle exit codes appropriately
+          if [ $PLAN_EXIT_CODE -eq 0 ]; then
+            echo "✅ No changes detected in Terraform plan"
+          elif [ $PLAN_EXIT_CODE -eq 1 ]; then
+            echo "❌ Terraform plan failed with an error"
+            exit 1
+          elif [ $PLAN_EXIT_CODE -eq 2 ]; then
+            echo "📋 Changes detected in Terraform plan"
+          else
+            echo "❌ Terraform plan returned unexpected exit code: $PLAN_EXIT_CODE"
+            exit 1
+          fi
 
       - name: Comment Plan Results (PR only)
         if: github.event_name == 'pull_request'
@@ -390,9 +408,32 @@ jobs:
               body: output
             })
 
+      - name: Plan Summary
+        run: |
+          echo "## Terraform Plan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.plan.outputs.plan_exitcode }}" = "0" ]; then
+            echo "✅ **No changes detected** - Infrastructure is up to date" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.plan.outputs.plan_exitcode }}" = "2" ]; then
+            echo "📋 **Changes detected** - Infrastructure will be updated" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Plan failed** - Check logs for details" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ needs.determine-environment.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action**: ${{ needs.determine-environment.outputs.action }}" >> $GITHUB_STEP_SUMMARY
+
       - name: Terraform Apply
-        if: needs.determine-environment.outputs.action == 'apply' && steps.plan.outputs.plan_exitcode == '2'
-        run: terraform apply -auto-approve tfplan
+        if: needs.determine-environment.outputs.action == 'apply' && (steps.plan.outputs.plan_exitcode == '2' || steps.plan.outputs.plan_exitcode == '0')
+        run: |
+          if [ "${{ steps.plan.outputs.plan_exitcode }}" = "0" ]; then
+            echo "✅ No changes to apply - infrastructure is up to date"
+          else
+            echo "📋 Applying Terraform changes..."
+            terraform apply -auto-approve tfplan
+          fi
 
       - name: Terraform Destroy
         if: needs.determine-environment.outputs.action == 'destroy'
