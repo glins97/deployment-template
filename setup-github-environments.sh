@@ -254,15 +254,23 @@ generate_ssh_key() {
     
     # Set private key as secret for all environments
     for env in "${ENVIRONMENTS[@]}"; do
-        # Use printf to ensure proper formatting and avoid newline issues
-        printf '%s' "$PRIVATE_KEY" | gh secret set "EC2_PRIVATE_KEY" \
+        # Write private key to temporary file to preserve newlines
+        echo "$PRIVATE_KEY" > "$SSH_DIR/temp_private_key"
+        
+        # Verify the temp file has the correct size
+        TEMP_KEY_SIZE=$(wc -c < "$SSH_DIR/temp_private_key")
+        print_status "Debug: Temp key file size: $TEMP_KEY_SIZE bytes"
+        
+        # Set secret from file to preserve formatting
+        gh secret set "EC2_PRIVATE_KEY" \
             --env "$env" \
-            --body -
+            --body-file "$SSH_DIR/temp_private_key"
         
         if [ $? -eq 0 ]; then
             print_status "✅ SSH private key set for environment $env"
         else
             print_error "❌ Failed to set SSH private key for environment $env"
+            print_error "Debug: gh secret set exit code: $?"
             rm -rf "$SSH_DIR"
             exit 1
         fi
@@ -275,6 +283,9 @@ generate_ssh_key() {
             rm -rf "$SSH_DIR"
             exit 1
         fi
+        
+        # Clean up temp file
+        rm -f "$SSH_DIR/temp_private_key"
     done
     
     # Save public key to file for manual setup
