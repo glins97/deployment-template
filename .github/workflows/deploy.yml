@@ -3,7 +3,7 @@ name: Deploy Application
 on:
   push:
     branches:
-      - prd
+      - main
       - hml
       - dev
   workflow_dispatch:
@@ -29,7 +29,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/prd" ]; then
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "environment=prd" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" = "refs/heads/hml" ]; then
             echo "environment=hml" >> $GITHUB_OUTPUT
