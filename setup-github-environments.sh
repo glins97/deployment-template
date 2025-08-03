@@ -255,16 +255,16 @@ generate_ssh_key() {
     # Set private key as secret for all environments
     for env in "${ENVIRONMENTS[@]}"; do
         # Write private key to temporary file to preserve newlines
-        echo "$PRIVATE_KEY" > "$SSH_DIR/temp_private_key"
+        printf "%s" "$PRIVATE_KEY" > "$SSH_DIR/temp_private_key"
         
         # Verify the temp file has the correct size
         TEMP_KEY_SIZE=$(wc -c < "$SSH_DIR/temp_private_key")
         print_status "Debug: Temp key file size: $TEMP_KEY_SIZE bytes"
         
-        # Set secret from file to preserve formatting
-        gh secret set "EC2_PRIVATE_KEY" \
+        # Set secret from file to preserve formatting (pipe the file content)
+        cat "$SSH_DIR/temp_private_key" | gh secret set "EC2_PRIVATE_KEY" \
             --env "$env" \
-            --body-file "$SSH_DIR/temp_private_key"
+            --body -
         
         if [ $? -eq 0 ]; then
             print_status "✅ SSH private key set for environment $env"
