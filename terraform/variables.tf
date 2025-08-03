@@ -45,6 +45,6 @@ variable "github_actions_ips" {
   description = "GitHub Actions IP ranges for SSH access"
   type        = list(string)
   default = [
-    "0.0.0.0/0"  # For simplicity, restrict this in production
+    "0.0.0.0/0" # For simplicity, restrict this in production
   ]
 }
