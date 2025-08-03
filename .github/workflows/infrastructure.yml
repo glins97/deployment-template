@@ -80,6 +80,21 @@ jobs:
       - name: Decode AWS Credentials
         run: |
           echo "🔓 Decoding base64 AWS credentials..."
+          echo "Debug: Checking if AWS_ACCESS_KEY_ID_B64 secret exists..."
+          echo "Debug: Checking if AWS_SECRET_ACCESS_KEY_B64 secret exists..."
+          
+          # Check if secrets exist and are not empty
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID_B64 }}" ]; then
+            echo "❌ AWS_ACCESS_KEY_ID_B64 secret is missing or empty"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}" ]; then
+            echo "❌ AWS_SECRET_ACCESS_KEY_B64 secret is missing or empty" 
+            exit 1
+          fi
+          
+          # Decode credentials
           echo "AWS_ACCESS_KEY_ID=$(echo '${{ secrets.AWS_ACCESS_KEY_ID_B64 }}' | base64 -d)" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=$(echo '${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}' | base64 -d)" >> $GITHUB_ENV
           echo "✅ AWS credentials decoded successfully"
@@ -172,6 +187,21 @@ jobs:
       - name: Decode AWS Credentials
         run: |
           echo "🔓 Decoding base64 AWS credentials..."
+          echo "Debug: Checking if AWS_ACCESS_KEY_ID_B64 secret exists..."
+          echo "Debug: Checking if AWS_SECRET_ACCESS_KEY_B64 secret exists..."
+          
+          # Check if secrets exist and are not empty
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID_B64 }}" ]; then
+            echo "❌ AWS_ACCESS_KEY_ID_B64 secret is missing or empty"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}" ]; then
+            echo "❌ AWS_SECRET_ACCESS_KEY_B64 secret is missing or empty" 
+            exit 1
+          fi
+          
+          # Decode credentials
           echo "AWS_ACCESS_KEY_ID=$(echo '${{ secrets.AWS_ACCESS_KEY_ID_B64 }}' | base64 -d)" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=$(echo '${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}' | base64 -d)" >> $GITHUB_ENV
           echo "✅ AWS credentials decoded successfully"
