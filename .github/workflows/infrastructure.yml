@@ -184,12 +184,28 @@ jobs:
               exit 1
             fi
             
-            # Test key validity
-            if ! ssh-keygen -l -f /tmp/private_key.pem >/dev/null 2>&1; then
-              echo "❌ Private key is invalid or corrupted. The EC2_PRIVATE_KEY secret contains an invalid SSH key."
-              echo "Please run the setup script again to generate and upload a valid SSH key."
-              rm -f /tmp/private_key.pem
-              exit 1
+            # Test key validity with more detailed error reporting
+            echo "Debug: Testing SSH key validity..."
+            if ssh-keygen -l -f /tmp/private_key.pem >/tmp/ssh_test.log 2>&1; then
+              echo "✅ SSH key validation successful:"
+              cat /tmp/ssh_test.log
+            else
+              echo "⚠️ ssh-keygen -l failed, checking if we can still extract public key..."
+              cat /tmp/ssh_test.log
+              
+              # Try to generate public key as a secondary validation
+              if ssh-keygen -y -f /tmp/private_key.pem >/tmp/pubkey_test.log 2>&1; then
+                echo "✅ Can generate public key from private key - key is valid:"
+                head -c 100 /tmp/pubkey_test.log
+                echo "..."
+              else
+                echo "❌ Private key is invalid or corrupted. Cannot generate public key."
+                echo "ssh-keygen -y output:"
+                cat /tmp/pubkey_test.log
+                echo "Please run the setup script again to generate and upload a valid SSH key."
+                rm -f /tmp/private_key.pem /tmp/ssh_test.log /tmp/pubkey_test.log
+                exit 1
+              fi
             fi
             
             echo "✅ Private key is valid ($KEY_SIZE bytes)"
