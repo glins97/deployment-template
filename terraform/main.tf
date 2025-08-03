@@ -21,13 +21,18 @@ provider "aws" {
 
 # Data sources
 data "aws_route53_zone" "main" {
-  name         = var.domain
+  name         = local.root_domain
   private_zone = false
 }
 
 # Local values for resource naming
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
+
+  # Extract root domain from the provided domain (handles subdomains)
+  # For example: test-abc.ljsft.xyz -> ljsft.xyz
+  domain_parts = split(".", var.domain)
+  root_domain  = length(local.domain_parts) > 2 ? join(".", slice(local.domain_parts, -2, length(local.domain_parts))) : var.domain
 
   # Domain configuration
   frontend_domain = var.environment == "prd" ? var.domain : "${var.environment}.${var.domain}"

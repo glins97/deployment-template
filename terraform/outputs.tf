@@ -57,3 +57,14 @@ output "ssl_certificate_arn" {
   description = "ARN of the SSL certificate"
   value       = module.frontend.certificate_arn
 }
+
+# Debug outputs
+output "root_domain_used" {
+  description = "Root domain used for Route53 lookup"
+  value       = local.root_domain
+}
+
+output "input_domain" {
+  description = "Input domain provided to terraform"
+  value       = var.domain
+}

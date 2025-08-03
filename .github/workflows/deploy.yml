@@ -100,10 +100,51 @@ jobs:
           # Select workspace for the environment
           terraform workspace select ${{ needs.determine-environment.outputs.environment }}
           
-          # Get outputs from existing infrastructure
-          echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
-          echo "frontend_cloudfront_id=$(terraform output -raw frontend_cloudfront_id)" >> $GITHUB_OUTPUT
-          echo "backend_instance_id=$(terraform output -raw backend_instance_id)" >> $GITHUB_OUTPUT
+          # Debug: Show terraform state information
+          echo "🔍 Terraform workspace and state information:"
+          echo "Current workspace: $(terraform workspace show)"
+          echo "State list:"
+          terraform state list || echo "No resources in state"
+          echo ""
+          
+          # Get outputs from existing infrastructure with error handling
+          echo "🔍 Checking terraform outputs..."
+          
+          # Check if any outputs exist
+          if ! terraform output >/dev/null 2>&1; then
+            echo "❌ No terraform outputs found. Infrastructure may not be deployed yet."
+            echo "Please run the infrastructure workflow first to create the resources."
+            exit 1
+          fi
+          
+          # Get individual outputs with error handling
+          FRONTEND_BUCKET=$(terraform output -raw frontend_bucket_name 2>/dev/null || echo "")
+          FRONTEND_CLOUDFRONT=$(terraform output -raw frontend_cloudfront_id 2>/dev/null || echo "")
+          BACKEND_INSTANCE=$(terraform output -raw backend_instance_id 2>/dev/null || echo "")
+          
+          if [ -z "$FRONTEND_BUCKET" ]; then
+            echo "❌ frontend_bucket_name output not found in terraform state"
+            exit 1
+          fi
+          
+          if [ -z "$FRONTEND_CLOUDFRONT" ]; then
+            echo "❌ frontend_cloudfront_id output not found in terraform state"
+            exit 1
+          fi
+          
+          if [ -z "$BACKEND_INSTANCE" ]; then
+            echo "❌ backend_instance_id output not found in terraform state"
+            exit 1
+          fi
+          
+          echo "✅ All required outputs found:"
+          echo "  Frontend bucket: $FRONTEND_BUCKET"
+          echo "  CloudFront ID: $FRONTEND_CLOUDFRONT"
+          echo "  Backend instance: $BACKEND_INSTANCE"
+          
+          echo "frontend_bucket_name=$FRONTEND_BUCKET" >> $GITHUB_OUTPUT
+          echo "frontend_cloudfront_id=$FRONTEND_CLOUDFRONT" >> $GITHUB_OUTPUT
+          echo "backend_instance_id=$BACKEND_INSTANCE" >> $GITHUB_OUTPUT
 
   deploy-frontend:
     needs: [determine-environment, get-infrastructure-info]
