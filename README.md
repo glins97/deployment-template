@@ -15,10 +15,11 @@ A complete automation template for deploying full-stack applications (React + Dj
 
 Before using this template, ensure you have:
 
-- AWS Account with programmatic access
-- Domain name with Route53 hosted zone (or ability to create one)
-- GitHub repository
-- GitHub CLI (`gh`) installed locally
+- **AWS Account** with programmatic access and valid credentials
+- **Domain name** with Route53 hosted zone
+- **GitHub repository** 
+- **GitHub CLI** (`gh`) installed locally
+- **Valid AWS credentials** configured in your `.env` file
 
 ## 🛠️ Quick Start
 
@@ -32,6 +33,13 @@ Before using this template, ensure you have:
    ```bash
    cp config.example.json config.json
    cp .env.example .env
+   ```
+   
+   **IMPORTANT**: Edit `.env` with your **valid AWS credentials**:
+   ```bash
+   # In .env file
+   AWS_ACCESS_KEY_ID=your_actual_aws_access_key_id
+   AWS_SECRET_ACCESS_KEY=your_actual_aws_secret_access_key
    ```
    
    Edit `config.json` with your project details:
@@ -166,6 +174,23 @@ Environment variables for the application:
 3. **Frontend Deployment**: Built files uploaded to S3, CloudFront invalidated
 4. **Backend Deployment**: Django app deployed to EC2 via Docker Compose
 5. **Health Checks**: Automated verification that services are running
+
+## 🧪 Testing
+
+Test the complete automation with the included test script:
+
+```bash
+./test-automation.sh
+```
+
+This will:
+- Create a temporary test repository
+- Set up all GitHub environments and secrets
+- Test the complete infrastructure deployment  
+- Validate the end-to-end automation flow
+- Clean up automatically when done
+
+**Requirements**: Valid AWS credentials in your `.env` file
 
 ## 🗑️ Cleanup
 
