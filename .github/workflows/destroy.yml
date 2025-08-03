@@ -100,10 +100,10 @@ jobs:
       - name: Terraform Init
         run: |
           terraform init \
-            -backend-config="bucket=${{ vars.PROJECT_NAME }}-terraform-state" \
+            -backend-config="bucket=${PROJECT_NAME_FOR_TERRAFORM}-terraform-state" \
             -backend-config="key=${{ github.event.inputs.environment }}/terraform.tfstate" \
-            -backend-config="region=${{ vars.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ vars.PROJECT_NAME }}-terraform-locks"
+            -backend-config="region=${AWS_REGION_FOR_TERRAFORM}" \
+            -backend-config="dynamodb_table=${PROJECT_NAME_FOR_TERRAFORM}-terraform-locks"
 
       - name: Terraform Workspace
         run: |
