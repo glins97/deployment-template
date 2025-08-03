@@ -222,10 +222,8 @@ generate_ssh_key() {
     # Save public key to file for manual setup
     cp "$SSH_KEY_PATH.pub" "./deploy_key_$PROJECT_NAME.pub"
     
-    print_warning "IMPORTANT: You need to manually add the public key to your AWS EC2 key pairs."
-    print_warning "Public key saved to: ./deploy_key_$PROJECT_NAME.pub"
-    print_warning "AWS Console: EC2 → Key Pairs → Import Key Pair"
-    print_warning "Key name should be: $PROJECT_NAME-deploy-key"
+    print_status "SSH key generated and saved as secret EC2_PRIVATE_KEY"
+    print_status "Public key saved to: ./deploy_key_$PROJECT_NAME.pub"
     
     # Cleanup
     rm -rf "$SSH_DIR"
@@ -240,10 +238,6 @@ create_terraform_backend() {
 # Terraform Backend Configuration
 # This file is used to configure the S3 backend for Terraform state
 
-# You need to create these resources manually before running terraform:
-# 1. S3 bucket for state storage: ${PROJECT_NAME}-terraform-state
-# 2. DynamoDB table for state locking: ${PROJECT_NAME}-terraform-locks
-
 bucket         = "${PROJECT_NAME}-terraform-state"
 key            = "terraform.tfstate"
 region         = "${AWS_REGION}"
@@ -252,9 +246,6 @@ dynamodb_table = "${PROJECT_NAME}-terraform-locks"
 EOF
 
     print_status "Terraform backend configuration created: terraform/backend.hcl"
-    print_warning "You need to manually create:"
-    print_warning "1. S3 bucket: ${PROJECT_NAME}-terraform-state"
-    print_warning "2. DynamoDB table: ${PROJECT_NAME}-terraform-locks"
 }
 
 # Function to display summary
@@ -269,17 +260,15 @@ display_summary() {
     echo "✅ Terraform backend configuration created"
     echo ""
     
-    print_warning "Manual steps required:"
-    echo "1. Create S3 bucket: ${PROJECT_NAME}-terraform-state"
-    echo "2. Create DynamoDB table: ${PROJECT_NAME}-terraform-locks" 
-    echo "3. Import SSH public key to AWS EC2: deploy_key_${PROJECT_NAME}.pub"
-    echo "4. Update terraform/main.tf with your backend configuration"
+    print_status "Next steps:"
+    echo "1. Deploy infrastructure: gh workflow run infrastructure.yml -f environment=dev"
+    echo "2. Or simply push to dev/hml/prd branch to trigger everything automatically"
     echo ""
-    
-    print_status "After completing manual steps, you can:"
-    echo "- Push code to trigger deployments"
-    echo "- Run infrastructure workflow: gh workflow run infrastructure.yml"
-    echo "- Monitor deployments: gh run list"
+    echo "🚀 The infrastructure workflow will automatically:"
+    echo "   - Create S3 bucket for Terraform state"
+    echo "   - Create DynamoDB table for state locking"
+    echo "   - Import EC2 key pair from the generated SSH key"
+    echo "   - Deploy all AWS infrastructure via Terraform"
 }
 
 # Main execution

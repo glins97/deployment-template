@@ -69,11 +69,11 @@ Before using this template, ensure you have:
    ./setup-github-environments.sh
    ```
 
-4. **Deploy infrastructure and application**:
+4. **Deploy everything automatically**:
    ```bash
    git add .
    git commit -m "Initial setup"
-   git push origin prd  # Triggers production deployment
+   git push origin dev  # Triggers dev deployment with auto-setup
    ```
 
 ## 🏗️ Architecture

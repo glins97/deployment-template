@@ -61,8 +61,83 @@ jobs:
             echo "action=apply" >> $GITHUB_OUTPUT
           fi
 
-  terraform:
+  setup-prerequisites:
     needs: determine-environment
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup AWS Prerequisites (Auto)
+        run: |
+          # Create S3 bucket for Terraform state
+          BUCKET_NAME="${{ vars.PROJECT_NAME }}-terraform-state"
+          
+          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            echo "🚀 Creating S3 bucket: $BUCKET_NAME"
+            
+            if [ "${{ vars.AWS_REGION }}" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$BUCKET_NAME"
+            else
+              aws s3api create-bucket \
+                --bucket "$BUCKET_NAME" \
+                --create-bucket-configuration LocationConstraint=${{ vars.AWS_REGION }}
+            fi
+            
+            aws s3api put-bucket-versioning \
+              --bucket "$BUCKET_NAME" \
+              --versioning-configuration Status=Enabled
+            
+            aws s3api put-bucket-encryption \
+              --bucket "$BUCKET_NAME" \
+              --server-side-encryption-configuration '{
+                "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]
+              }'
+          fi
+          
+          # Create DynamoDB table for Terraform locks
+          TABLE_NAME="${{ vars.PROJECT_NAME }}-terraform-locks"
+          
+          if ! aws dynamodb describe-table --table-name "$TABLE_NAME" 2>/dev/null; then
+            echo "🚀 Creating DynamoDB table: $TABLE_NAME"
+            
+            aws dynamodb create-table \
+              --table-name "$TABLE_NAME" \
+              --attribute-definitions AttributeName=LockID,AttributeType=S \
+              --key-schema AttributeName=LockID,KeyType=HASH \
+              --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+            
+            aws dynamodb wait table-exists --table-name "$TABLE_NAME"
+          fi
+          
+          # Create/Import EC2 Key Pair
+          KEY_NAME="${{ vars.PROJECT_NAME }}-deploy-key"
+          
+          if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" 2>/dev/null; then
+            echo "🚀 Creating EC2 Key Pair: $KEY_NAME"
+            
+            echo "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/private_key.pem
+            chmod 600 /tmp/private_key.pem
+            ssh-keygen -y -f /tmp/private_key.pem > /tmp/public_key.pub
+            
+            aws ec2 import-key-pair \
+              --key-name "$KEY_NAME" \
+              --public-key-material fileb:///tmp/public_key.pub
+            
+            rm -f /tmp/private_key.pem /tmp/public_key.pub
+          fi
+
+  terraform:
+    needs: [determine-environment, setup-prerequisites]
     runs-on: ubuntu-latest
     environment: ${{ needs.determine-environment.outputs.environment }}
     
