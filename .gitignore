@@ -78,3 +78,5 @@ terraform/backend.hcl
 coverage/
 .coverage
 *.cover
+
+test-automation.sh
