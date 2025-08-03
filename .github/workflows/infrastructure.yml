@@ -132,15 +132,36 @@ jobs:
           if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" 2>/dev/null; then
             echo "🚀 Creating EC2 Key Pair: $KEY_NAME"
             
-            echo "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/private_key.pem
+            # Write private key to file, ensuring proper line endings
+            printf '%s\n' "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/private_key.pem
             chmod 600 /tmp/private_key.pem
-            ssh-keygen -y -f /tmp/private_key.pem > /tmp/public_key.pub
             
-            aws ec2 import-key-pair \
-              --key-name "$KEY_NAME" \
-              --public-key-material fileb:///tmp/public_key.pub
+            # Debug: Check if key file is valid
+            echo "Debug: Private key file size: $(wc -c < /tmp/private_key.pem) bytes"
+            echo "Debug: First line of private key:"
+            head -1 /tmp/private_key.pem
+            echo "Debug: Last line of private key:"
+            tail -1 /tmp/private_key.pem
             
-            rm -f /tmp/private_key.pem /tmp/public_key.pub
+            # Test key validity before using it
+            if ssh-keygen -l -f /tmp/private_key.pem >/dev/null 2>&1; then
+              echo "✅ Private key is valid"
+              ssh-keygen -y -f /tmp/private_key.pem > /tmp/public_key.pub
+              
+              aws ec2 import-key-pair \
+                --key-name "$KEY_NAME" \
+                --public-key-material fileb:///tmp/public_key.pub
+            else
+              echo "❌ Private key is invalid, trying to regenerate..."
+              # Generate a new key pair directly on the runner
+              ssh-keygen -t rsa -b 4096 -f /tmp/private_key.pem -N "" -C "github-actions-${{ vars.PROJECT_NAME }}"
+              
+              aws ec2 import-key-pair \
+                --key-name "$KEY_NAME" \
+                --public-key-material fileb:///tmp/private_key.pem.pub
+            fi
+            
+            rm -f /tmp/private_key.pem /tmp/public_key.pub /tmp/private_key.pem.pub
           fi
 
   terraform:

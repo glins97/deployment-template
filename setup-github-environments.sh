@@ -237,9 +237,11 @@ generate_ssh_key() {
     
     # Set private key as secret for all environments
     for env in "${ENVIRONMENTS[@]}"; do
-        echo "$PRIVATE_KEY" | gh secret set "EC2_PRIVATE_KEY" \
+        # Use printf to ensure proper formatting and avoid newline issues
+        printf '%s' "$PRIVATE_KEY" | gh secret set "EC2_PRIVATE_KEY" \
             --env "$env" \
             --body -
+        print_status "SSH private key set for environment $env"
     done
     
     # Save public key to file for manual setup
