@@ -47,6 +47,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read project config
+        id: config
+        run: |
+          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          DOMAIN=$(jq -r '.project.domain' config.json)
+          REGION=$(jq -r '.aws.region' config.json)
+          
+          echo "project_name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
+          echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
+          echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -58,15 +69,33 @@ jobs:
         with:
           aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}
 
       - name: Set Terraform variables
         run: |
-          echo "TF_VAR_project_name=${{ vars.PROJECT_NAME }}" >> $GITHUB_ENV
+          # Set fallback values
+          PROJECT_NAME="${{ vars.PROJECT_NAME }}"
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME="${{ steps.config.outputs.project_name }}"
+          fi
+          
+          DOMAIN="${{ vars.DOMAIN }}"
+          if [ -z "$DOMAIN" ]; then
+            DOMAIN="${{ steps.config.outputs.domain }}"
+          fi
+          
+          AWS_REGION="${{ vars.AWS_REGION }}"
+          if [ -z "$AWS_REGION" ]; then
+            AWS_REGION="${{ steps.config.outputs.aws_region }}"
+          fi
+          
+          echo "TF_VAR_project_name=$PROJECT_NAME" >> $GITHUB_ENV
           echo "TF_VAR_environment=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
-          echo "TF_VAR_domain=${{ vars.DOMAIN }}" >> $GITHUB_ENV
-          echo "TF_VAR_aws_region=${{ vars.AWS_REGION }}" >> $GITHUB_ENV
-          echo "TF_VAR_ssh_key_name=${{ vars.PROJECT_NAME }}-deploy-key" >> $GITHUB_ENV
+          echo "TF_VAR_domain=$DOMAIN" >> $GITHUB_ENV
+          echo "TF_VAR_aws_region=$AWS_REGION" >> $GITHUB_ENV
+          echo "TF_VAR_ssh_key_name=${PROJECT_NAME}-deploy-key" >> $GITHUB_ENV
+          echo "PROJECT_NAME_FOR_TERRAFORM=$PROJECT_NAME" >> $GITHUB_ENV
+          echo "AWS_REGION_FOR_TERRAFORM=$AWS_REGION" >> $GITHUB_ENV
 
       - name: Terraform Init
         run: |
