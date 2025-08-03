@@ -156,32 +156,41 @@ jobs:
             printf '%s\n' "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/private_key.pem
             chmod 600 /tmp/private_key.pem
             
-            # Debug: Check if key file is valid
-            echo "Debug: Private key file size: $(wc -c < /tmp/private_key.pem) bytes"
-            echo "Debug: First line of private key:"
-            head -1 /tmp/private_key.pem
-            echo "Debug: Last line of private key:"
-            tail -1 /tmp/private_key.pem
+            # Validate private key
+            KEY_SIZE=$(wc -c < /tmp/private_key.pem)
+            echo "Private key size: $KEY_SIZE bytes"
             
-            # Test key validity before using it
-            if ssh-keygen -l -f /tmp/private_key.pem >/dev/null 2>&1; then
-              echo "✅ Private key is valid"
-              ssh-keygen -y -f /tmp/private_key.pem > /tmp/public_key.pub
-              
-              aws ec2 import-key-pair \
-                --key-name "$KEY_NAME" \
-                --public-key-material fileb:///tmp/public_key.pub
-            else
-              echo "❌ Private key is invalid, trying to regenerate..."
-              # Generate a new key pair directly on the runner
-              ssh-keygen -t rsa -b 4096 -f /tmp/private_key.pem -N "" -C "github-actions-${PROJECT_NAME}"
-              
-              aws ec2 import-key-pair \
-                --key-name "$KEY_NAME" \
-                --public-key-material fileb:///tmp/private_key.pem.pub
+            if [ "$KEY_SIZE" -lt 100 ]; then
+              echo "❌ Private key is too small ($KEY_SIZE bytes). The EC2_PRIVATE_KEY secret appears to be empty or corrupted."
+              echo "Please run the setup script again to generate and upload a valid SSH key."
+              rm -f /tmp/private_key.pem
+              exit 1
             fi
             
-            rm -f /tmp/private_key.pem /tmp/public_key.pub /tmp/private_key.pem.pub
+            # Test key validity
+            if ! ssh-keygen -l -f /tmp/private_key.pem >/dev/null 2>&1; then
+              echo "❌ Private key is invalid or corrupted. The EC2_PRIVATE_KEY secret contains an invalid SSH key."
+              echo "Please run the setup script again to generate and upload a valid SSH key."
+              rm -f /tmp/private_key.pem
+              exit 1
+            fi
+            
+            echo "✅ Private key is valid ($KEY_SIZE bytes)"
+            
+            # Generate public key from private key
+            ssh-keygen -y -f /tmp/private_key.pem > /tmp/public_key.pub
+            
+            # Import key pair to AWS
+            aws ec2 import-key-pair \
+              --key-name "$KEY_NAME" \
+              --public-key-material fileb:///tmp/public_key.pub
+            
+            echo "✅ EC2 key pair imported successfully: $KEY_NAME"
+            
+            # Cleanup
+            rm -f /tmp/private_key.pem /tmp/public_key.pub
+          else
+            echo "✅ EC2 key pair already exists: $KEY_NAME"
           fi
 
   terraform:

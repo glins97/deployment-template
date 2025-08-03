@@ -231,9 +231,26 @@ generate_ssh_key() {
     # Generate SSH key pair
     ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_PATH" -N "" -C "github-actions-$PROJECT_NAME"
     
+    # Validate generated key
+    if ! ssh-keygen -l -f "$SSH_KEY_PATH" >/dev/null 2>&1; then
+        print_error "Failed to generate valid SSH key"
+        rm -rf "$SSH_DIR"
+        exit 1
+    fi
+    
     # Read private key
     PRIVATE_KEY=$(cat "$SSH_KEY_PATH")
     PUBLIC_KEY=$(cat "$SSH_KEY_PATH.pub")
+    
+    # Validate key size (should be around 1600+ bytes for RSA 4096)
+    KEY_SIZE=${#PRIVATE_KEY}
+    if [ "$KEY_SIZE" -lt 1600 ]; then
+        print_error "Generated private key is too small ($KEY_SIZE bytes). Expected 1600+ bytes."
+        rm -rf "$SSH_DIR"
+        exit 1
+    fi
+    
+    print_status "Generated valid SSH key ($KEY_SIZE bytes)"
     
     # Set private key as secret for all environments
     for env in "${ENVIRONMENTS[@]}"; do
@@ -241,7 +258,23 @@ generate_ssh_key() {
         printf '%s' "$PRIVATE_KEY" | gh secret set "EC2_PRIVATE_KEY" \
             --env "$env" \
             --body -
-        print_status "SSH private key set for environment $env"
+        
+        if [ $? -eq 0 ]; then
+            print_status "✅ SSH private key set for environment $env"
+        else
+            print_error "❌ Failed to set SSH private key for environment $env"
+            rm -rf "$SSH_DIR"
+            exit 1
+        fi
+        
+        # Validate the secret was stored by attempting to retrieve it (this won't show the actual value)
+        if gh secret list --env "$env" | grep -q "EC2_PRIVATE_KEY"; then
+            print_status "✅ SSH key secret verified for environment $env"
+        else
+            print_error "❌ SSH key secret not found after setting for environment $env"
+            rm -rf "$SSH_DIR"
+            exit 1
+        fi
     done
     
     # Save public key to file for manual setup
@@ -249,6 +282,7 @@ generate_ssh_key() {
     
     print_status "SSH key generated and saved as secret EC2_PRIVATE_KEY"
     print_status "Public key saved to: ./deploy_key_$PROJECT_NAME.pub"
+    print_status "Private key size: $KEY_SIZE bytes (validated)"
     
     # Cleanup
     rm -rf "$SSH_DIR"
