@@ -1,0 +1,121 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to destroy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - hml
+      confirm_destroy:
+        description: 'Type "destroy" to confirm'
+        required: true
+        type: string
+
+jobs:
+  validate-input:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate destroy confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm_destroy }}" != "destroy" ]; then
+            echo "❌ Destroy confirmation failed. You must type 'destroy' to confirm."
+            exit 1
+          fi
+          
+          if [ "${{ github.event.inputs.environment }}" = "prd" ]; then
+            echo "❌ Production environment cannot be destroyed via this workflow for safety."
+            echo "To destroy production, use terraform destroy manually."
+            exit 1
+          fi
+          
+          echo "✅ Destroy confirmation validated"
+
+  terraform-destroy:
+    needs: validate-input
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    defaults:
+      run:
+        working-directory: terraform
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set Terraform variables
+        run: |
+          echo "TF_VAR_project_name=${{ vars.PROJECT_NAME }}" >> $GITHUB_ENV
+          echo "TF_VAR_environment=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          echo "TF_VAR_domain=${{ vars.DOMAIN }}" >> $GITHUB_ENV
+          echo "TF_VAR_aws_region=${{ vars.AWS_REGION }}" >> $GITHUB_ENV
+          echo "TF_VAR_ssh_key_name=${{ vars.PROJECT_NAME }}-deploy-key" >> $GITHUB_ENV
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.PROJECT_NAME }}-terraform-state" \
+            -backend-config="key=${{ github.event.inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ vars.PROJECT_NAME }}-terraform-locks"
+
+      - name: Terraform Workspace
+        run: |
+          terraform workspace select ${{ github.event.inputs.environment }}
+
+      - name: Empty S3 bucket before destroy
+        run: |
+          # Get bucket name from terraform state
+          BUCKET_NAME=$(terraform output -raw frontend_bucket_name 2>/dev/null || echo "")
+          
+          if [ ! -z "$BUCKET_NAME" ]; then
+            echo "Emptying S3 bucket: $BUCKET_NAME"
+            aws s3 rm s3://$BUCKET_NAME --recursive || true
+          fi
+
+      - name: Terraform Destroy Plan
+        run: |
+          terraform plan -destroy -detailed-exitcode
+          echo "Destroy plan completed"
+
+      - name: Terraform Destroy
+        run: |
+          echo "🔥 Destroying infrastructure for environment: ${{ github.event.inputs.environment }}"
+          terraform destroy -auto-approve
+          echo "✅ Infrastructure destroyed successfully"
+
+      - name: Cleanup Terraform Workspace
+        run: |
+          # Switch to default workspace and delete the environment workspace
+          terraform workspace select default
+          terraform workspace delete ${{ github.event.inputs.environment }} || true
+
+      - name: Summary
+        run: |
+          echo "## Destruction Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment Destroyed**: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resources Removed**: All AWS resources for this environment" >> $GITHUB_STEP_SUMMARY
+          echo "- **Terraform Workspace**: Deleted" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔥 Infrastructure has been completely destroyed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note**: GitHub environment settings and secrets are preserved." >> $GITHUB_STEP_SUMMARY
+          echo "To recreate the infrastructure, run the infrastructure workflow." >> $GITHUB_STEP_SUMMARY

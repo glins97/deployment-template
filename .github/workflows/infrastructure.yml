@@ -1,0 +1,163 @@
+name: Infrastructure Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy infrastructure'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - hml
+          - prd
+      action:
+        description: 'Terraform action to perform'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+  push:
+    paths:
+      - 'terraform/**'
+    branches:
+      - prd
+      - hml
+      - dev
+
+env:
+  TF_VAR_project_name: ${{ vars.PROJECT_NAME }}
+  TF_VAR_domain: ${{ vars.DOMAIN }}
+  TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+
+jobs:
+  determine-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      action: ${{ steps.env.outputs.action }}
+    steps:
+      - name: Determine environment and action
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "action=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/prd" ]; then
+            echo "environment=prd" >> $GITHUB_OUTPUT
+            echo "action=apply" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/hml" ]; then
+            echo "environment=hml" >> $GITHUB_OUTPUT
+            echo "action=apply" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "action=apply" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "action=apply" >> $GITHUB_OUTPUT
+          fi
+
+  terraform:
+    needs: determine-environment
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    
+    defaults:
+      run:
+        working-directory: terraform
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set Terraform variables
+        run: |
+          echo "TF_VAR_environment=${{ needs.determine-environment.outputs.environment }}" >> $GITHUB_ENV
+          echo "TF_VAR_ssh_key_name=${{ vars.PROJECT_NAME }}-deploy-key" >> $GITHUB_ENV
+          echo "TF_VAR_instance_type=${{ vars.INSTANCE_TYPE }}" >> $GITHUB_ENV
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.PROJECT_NAME }}-terraform-state" \
+            -backend-config="key=${{ needs.determine-environment.outputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ vars.PROJECT_NAME }}-terraform-locks"
+
+      - name: Terraform Workspace
+        run: |
+          terraform workspace select ${{ needs.determine-environment.outputs.environment }} || \
+          terraform workspace new ${{ needs.determine-environment.outputs.environment }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -detailed-exitcode -out=tfplan
+          echo "plan_exitcode=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Comment Plan Results (PR only)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
+            
+            <details><summary>Show Plan</summary>
+            
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            
+            </details>
+            
+            *Environment: ${{ needs.determine-environment.outputs.environment }}*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Apply
+        if: needs.determine-environment.outputs.action == 'apply' && steps.plan.outputs.plan_exitcode == '2'
+        run: terraform apply -auto-approve tfplan
+
+      - name: Terraform Destroy
+        if: needs.determine-environment.outputs.action == 'destroy'
+        run: terraform destroy -auto-approve
+
+      - name: Output Infrastructure Info
+        if: needs.determine-environment.outputs.action == 'apply'
+        run: |
+          echo "## Infrastructure Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend Bucket**: $(terraform output -raw frontend_bucket_name)" >> $GITHUB_STEP_SUMMARY
+          echo "- **CloudFront ID**: $(terraform output -raw frontend_cloudfront_id)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Instance**: $(terraform output -raw backend_instance_id)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend Domain**: $(terraform output -raw frontend_domain)" >> $GITHUB_STEP_SUMMARY
+          echo "- **API Domain**: $(terraform output -raw api_domain)" >> $GITHUB_STEP_SUMMARY

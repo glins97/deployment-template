@@ -1,11 +1,11 @@
-name: Deploy Infrastructure and Application
+name: Deploy Application
 
 on:
   push:
     branches:
-      - main
-      - develop
-      - staging
+      - prd
+      - hml
+      - dev
   workflow_dispatch:
     inputs:
       environment:
@@ -19,7 +19,7 @@ on:
           - prd
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: ${{ vars.AWS_REGION }}
 
 jobs:
   determine-environment:
@@ -32,10 +32,12 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          elif [ "${{ github.ref }}" = "refs/heads/prd" ]; then
             echo "environment=prd" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/staging" ]; then
+          elif [ "${{ github.ref }}" = "refs/heads/hml" ]; then
             echo "environment=hml" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
           fi
@@ -70,15 +72,19 @@ jobs:
         working-directory: terraform
         run: |
           # Initialize Terraform to read existing state
-          terraform init
+          terraform init \
+            -backend-config="bucket=${{ vars.PROJECT_NAME }}-terraform-state" \
+            -backend-config="key=${{ needs.determine-environment.outputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ vars.PROJECT_NAME }}-terraform-locks"
           
           # Select workspace for the environment
-          terraform workspace select ${{ needs.determine-environment.outputs.environment }} || echo "Workspace doesn't exist yet"
+          terraform workspace select ${{ needs.determine-environment.outputs.environment }}
           
           # Get outputs from existing infrastructure
-          echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-          echo "frontend_cloudfront_id=$(terraform output -raw frontend_cloudfront_id 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-          echo "backend_instance_id=$(terraform output -raw backend_instance_id 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          echo "frontend_bucket_name=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
+          echo "frontend_cloudfront_id=$(terraform output -raw frontend_cloudfront_id)" >> $GITHUB_OUTPUT
+          echo "backend_instance_id=$(terraform output -raw backend_instance_id)" >> $GITHUB_OUTPUT
 
   deploy-frontend:
     needs: [determine-environment, get-infrastructure-info]
@@ -99,20 +105,27 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build with all environment variables
+      - name: Create environment file for build
         working-directory: frontend
         run: |
-          # Export all environment variables from GitHub environment
-          # Filter out GitHub Actions system variables but keep everything else
-          printenv | grep -v -E '^(GITHUB_|RUNNER_|CI|HOME|PATH|PWD|SHELL|USER|LANG|LC_|TERM|_)' > ../build.env
+          # Create .env file for React build
+          cat > .env.production <<EOF
+          REACT_APP_API_URL=https://${{ vars.API_DOMAIN }}/api
+          REACT_APP_ENVIRONMENT=${{ needs.determine-environment.outputs.environment }}
+          EOF
           
-          # Source the environment file and build
-          set -a
-          source ../build.env
-          set +a
-          
-          echo "Building with $(wc -l < ../build.env) environment variables"
+          # Add all environment variables from GitHub secrets/vars
+          echo "REACT_APP_PROJECT_NAME=${{ vars.PROJECT_NAME }}" >> .env.production
+
+      - name: Build React application
+        working-directory: frontend
+        run: |
+          # Build for production
           npm run build
+          
+          # Verify build output
+          ls -la build/
+          echo "Build completed successfully"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -123,11 +136,26 @@ jobs:
 
       - name: Deploy to S3
         run: |
-          aws s3 sync frontend/build/ s3://${{ needs.get-infrastructure-info.outputs.frontend-bucket }}/ --delete
+          echo "Deploying to bucket: ${{ needs.get-infrastructure-info.outputs.frontend-bucket }}"
+          aws s3 sync frontend/build/ s3://${{ needs.get-infrastructure-info.outputs.frontend-bucket }}/ \
+            --delete \
+            --cache-control "max-age=31536000" \
+            --exclude "*.html" \
+            --exclude "service-worker.js"
+          
+          # Upload HTML files with no cache
+          aws s3 sync frontend/build/ s3://${{ needs.get-infrastructure-info.outputs.frontend-bucket }}/ \
+            --delete \
+            --cache-control "no-cache" \
+            --include "*.html" \
+            --include "service-worker.js"
 
       - name: Invalidate CloudFront
         run: |
-          aws cloudfront create-invalidation --distribution-id ${{ needs.get-infrastructure-info.outputs.frontend-cloudfront-id }} --paths "/*"
+          echo "Invalidating CloudFront distribution: ${{ needs.get-infrastructure-info.outputs.frontend-cloudfront-id }}"
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ needs.get-infrastructure-info.outputs.frontend-cloudfront-id }} \
+            --paths "/*"
 
   deploy-backend:
     needs: [determine-environment, get-infrastructure-info]
@@ -144,15 +172,36 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Create .env from GitHub environment
+      - name: Create .env file from secrets
         run: |
           # Create .env file from all GitHub environment variables and secrets
-          # Filter out GitHub Actions system variables but keep everything else
-          printenv | grep -v -E '^(GITHUB_|RUNNER_|CI|HOME|PATH|PWD|SHELL|USER|LANG|LC_|TERM|_)' > .env
+          cat > .env <<EOF
+          # Django Configuration
+          SECRET_KEY=${{ secrets.SECRET_KEY }}
+          DEBUG=${{ secrets.DEBUG }}
+          ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
           
-          echo "Generated .env file with $(wc -l < .env) environment variables"
+          # Database Configuration  
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          DB_ENGINE=${{ secrets.DB_ENGINE }}
+          DB_HOST=${{ secrets.DB_HOST }}
+          DB_PORT=${{ secrets.DB_PORT }}
+          
+          # CORS Configuration
+          CORS_ALLOW_ALL_ORIGINS=${{ secrets.CORS_ALLOW_ALL_ORIGINS }}
+          CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
+          
+          # Environment specific
+          BACKEND_URL=https://${{ vars.API_DOMAIN }}/api
+          FRONTEND_URL=https://${{ vars.FRONTEND_DOMAIN }}
+          EOF
+          
+          echo "Generated .env file with environment-specific configuration"
 
-      - name: Copy files to EC2
+      - name: Get EC2 instance information
+        id: instance
         run: |
           # Get EC2 instance public IP
           INSTANCE_IP=$(aws ec2 describe-instances \
@@ -160,35 +209,70 @@ jobs:
             --query 'Reservations[0].Instances[0].PublicIpAddress' \
             --output text)
           
+          echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
+          echo "Instance IP: $INSTANCE_IP"
+
+      - name: Deploy to EC2
+        run: |
           # Create SSH key file
-          echo "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/key.pem
-          chmod 600 /tmp/key.pem
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/deploy_key.pem
+          chmod 600 /tmp/deploy_key.pem
+          
+          # Test SSH connection
+          ssh -i /tmp/deploy_key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+            ubuntu@${{ steps.instance.outputs.instance_ip }} "echo 'SSH connection successful'"
+          
+          # Create remote application directory
+          ssh -i /tmp/deploy_key.pem -o StrictHostKeyChecking=no \
+            ubuntu@${{ steps.instance.outputs.instance_ip }} \
+            "sudo mkdir -p /opt/app && sudo chown ubuntu:ubuntu /opt/app"
           
           # Copy application files
-          scp -i /tmp/key.pem -o StrictHostKeyChecking=no -r \
+          scp -i /tmp/deploy_key.pem -o StrictHostKeyChecking=no -r \
             backend/ docker-compose.yml .env \
-            ubuntu@$INSTANCE_IP:/opt/app/
+            ubuntu@${{ steps.instance.outputs.instance_ip }}:/opt/app/
           
           # Deploy application
-          ssh -i /tmp/key.pem -o StrictHostKeyChecking=no ubuntu@$INSTANCE_IP << 'EOF'
+          ssh -i /tmp/deploy_key.pem -o StrictHostKeyChecking=no \
+            ubuntu@${{ steps.instance.outputs.instance_ip }} << 'EOF'
             cd /opt/app
             
-            # Stop existing services
+            echo "Stopping existing services..."
             sudo docker-compose down || true
             
-            # Remove old containers and images to free space
+            echo "Cleaning up old containers and images..."
             sudo docker system prune -f || true
             
-            # Build and start services
+            echo "Building and starting services..."
             sudo docker-compose up --build -d
             
-            # Wait for services to be ready
+            echo "Waiting for services to be ready..."
             sleep 30
             
-            # Check service status
+            echo "Checking service status..."
             sudo docker-compose ps
-            sudo docker-compose logs --tail=50
             
-            # Restart nginx to ensure proper proxying
+            echo "Checking application logs..."
+            sudo docker-compose logs --tail=20 backend
+            
+            echo "Testing backend health..."
+            curl -f http://localhost:8000/health/ || echo "Health check failed"
+            
+            echo "Restarting nginx..."
             sudo systemctl restart nginx
+            sudo systemctl status nginx
           EOF
+          
+          # Cleanup SSH key
+          rm -f /tmp/deploy_key.pem
+
+      - name: Verify deployment
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ needs.determine-environment.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend URL**: https://${{ vars.FRONTEND_DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **API URL**: https://${{ vars.API_DOMAIN }}/api" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Instance**: ${{ needs.get-infrastructure-info.outputs.backend-instance-id }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment completed successfully! 🚀" >> $GITHUB_STEP_SUMMARY
