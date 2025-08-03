@@ -247,14 +247,15 @@ generate_ssh_key() {
     # Set private key as secret for all environments
     for env in "${ENVIRONMENTS[@]}"; do
         # Base64 encode the private key to avoid multiline issues in GitHub secrets
-        ENCODED_KEY=$(printf "%s" "$PRIVATE_KEY" | base64)
+        # Use base64 -w 0 to ensure no line wrapping, and preserve newlines
+        ENCODED_KEY=$(echo "$PRIVATE_KEY" | base64 -w 0)
         
         print_status "Debug: Original key size: ${#PRIVATE_KEY} bytes"
         print_status "Debug: Encoded key length: ${#ENCODED_KEY} characters"
         print_status "Debug: First 50 chars of encoded key: ${ENCODED_KEY:0:50}"
         
         # Test decoding locally to verify it works
-        if printf "%s" "$ENCODED_KEY" | base64 -d > /tmp/test_decode.pem 2>/dev/null; then
+        if echo "$ENCODED_KEY" | base64 -d > /tmp/test_decode.pem 2>/dev/null; then
             DECODED_SIZE=$(wc -c < /tmp/test_decode.pem)
             print_status "Debug: ✅ Local base64 decode test successful, size: $DECODED_SIZE bytes"
             rm -f /tmp/test_decode.pem
