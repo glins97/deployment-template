@@ -142,13 +142,31 @@ set_environment_secrets() {
             # Remove surrounding quotes if present
             value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
             
+            # Debug: Show value format for AWS credentials (masked)
+            if [[ "$key" == "AWS_ACCESS_KEY_ID" ]]; then
+                print_status "Debug: Setting AWS_ACCESS_KEY_ID (${value:0:8}...)"
+            elif [[ "$key" == "AWS_SECRET_ACCESS_KEY" ]]; then
+                print_status "Debug: Setting AWS_SECRET_ACCESS_KEY (length: ${#value}, ends: ...${value: -4})"
+            fi
+            
             # Set secret for each environment
             for env in "${ENVIRONMENTS[@]}"; do
                 print_status "Setting secret $key for environment $env"
                 
-                echo "$value" | gh secret set "$key" \
+                # Use printf to avoid potential newline issues
+                printf "%s" "$value" | gh secret set "$key" \
                     --env "$env" \
                     --body -
+                
+                # Verify the secret was set (only for AWS credentials to avoid spam)
+                if [[ "$key" =~ ^AWS_ ]]; then
+                    if gh secret list --env "$env" | grep -q "^$key"; then
+                        print_status "✅ AWS secret $key verified for $env"
+                    else
+                        print_error "❌ Failed to set AWS secret $key for $env"
+                        exit 1
+                    fi
+                fi
             done
         fi
     done < .env

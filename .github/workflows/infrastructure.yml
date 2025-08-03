@@ -77,6 +77,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Validate AWS Credentials
+        run: |
+          echo "🔍 Testing AWS credentials..."
+          
+          # Test AWS credentials immediately
+          aws sts get-caller-identity
+          
+          echo "✅ AWS credentials are valid!"
+          echo "Account: $(aws sts get-caller-identity --query Account --output text)"
+          echo "Region: ${{ vars.AWS_REGION }}"
+
       - name: Setup AWS Prerequisites (Auto)
         run: |
           # Create S3 bucket for Terraform state
