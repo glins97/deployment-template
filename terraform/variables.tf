@@ -48,3 +48,9 @@ variable "github_actions_ips" {
     "0.0.0.0/0" # For simplicity, restrict this in production
   ]
 }
+
+variable "vpc_id" {
+  description = "Existing VPC ID to use (if null, a new VPC will be created)"
+  type        = string
+  default     = null
+}

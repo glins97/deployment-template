@@ -5,9 +5,6 @@
 .env.test.local
 .env.production.local
 
-# Configuration files (actual values)
-config.json
-
 # Terraform
 terraform.tfstate
 terraform.tfstate.backup

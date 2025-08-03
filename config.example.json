@@ -14,7 +14,8 @@
       "dev": "t4g.micro",
       "hml": "t4g.micro", 
       "prd": "t4g.small"
-    }
+    },
+    "vpc_id": null
   },
   "deployment": {
     "branches": {

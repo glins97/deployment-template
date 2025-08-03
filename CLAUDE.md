@@ -208,3 +208,28 @@ When suggesting improvements, always consider cost impact.
 3. **CloudFront cache issues**: Always invalidate after frontend deploys
 4. **EC2 SSH access**: Ensure security groups allow SSH from GitHub Actions IPs
 5. **Certificate validation**: Ensure domain ownership for ACM certificates
+6. **SSH Key Issues**: If you get "error in libcrypto" or "Private key is invalid", run the setup script again to regenerate SSH keys with proper base64 encoding
+
+## Recent Fixes Applied
+
+### SSH Key Base64 Encoding Fix
+**Issue**: SSH keys were being corrupted during base64 encoding/decoding, causing "error in libcrypto" errors.
+
+**Root Cause**: The setup script was using `printf "%s"` which doesn't preserve newlines correctly. SSH private keys require exact formatting including newlines.
+
+**Fix**: Updated `setup-github-environments.sh` to use `echo "$PRIVATE_KEY" | base64 -w 0` instead of `printf "%s" "$PRIVATE_KEY" | base64`. This preserves the SSH key format while creating a single-line base64 string suitable for GitHub secrets.
+
+**Action Required**: If you encounter SSH key errors, run the setup script again to regenerate keys with the correct encoding.
+
+### Destroy Workflow Environment Support
+**Issue**: The destroy workflow didn't accept 'prd' environment, causing dispatch errors.
+
+**Fix**: Added 'prd' to the allowed environments in `.github/workflows/destroy.yml`. The workflow includes safety checks to prevent accidental production destruction.
+
+### Enhanced SSH Key Validation
+**Issue**: SSH key validation was failing with unclear error messages.
+
+**Fix**: Enhanced the validation logic in `.github/workflows/infrastructure.yml` to:
+- Provide detailed error reporting for SSH key issues
+- Use fallback validation with `ssh-keygen -y` if `ssh-keygen -l` fails
+- Show clear debugging information for troubleshooting

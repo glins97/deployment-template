@@ -25,6 +25,21 @@ data "aws_route53_zone" "main" {
   private_zone = false
 }
 
+# Data source for existing VPC (when using existing VPC)
+data "aws_vpc" "existing" {
+  count = var.vpc_id != null ? 1 : 0
+  id    = var.vpc_id
+}
+
+# Data source for existing subnets (when using existing VPC)
+data "aws_subnets" "existing" {
+  count = var.vpc_id != null ? 1 : 0
+  filter {
+    name   = "vpc-id"
+    values = [var.vpc_id]
+  }
+}
+
 # Local values for resource naming
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
@@ -38,6 +53,11 @@ locals {
   frontend_domain = var.environment == "prd" ? var.domain : "${var.environment}.${var.domain}"
   api_domain      = var.environment == "prd" ? var.domain : "${var.environment}.${var.domain}"
 
+  # VPC configuration - use existing or new VPC
+  use_existing_vpc = var.vpc_id != null
+  vpc_id           = local.use_existing_vpc ? var.vpc_id : module.vpc[0].vpc_id
+  public_subnet_ids = local.use_existing_vpc ? data.aws_subnets.existing[0].ids : module.vpc[0].public_subnet_ids
+
   common_tags = {
     Project     = var.project_name
     Environment = var.environment
@@ -45,8 +65,9 @@ locals {
   }
 }
 
-# VPC Module
+# VPC Module (only create if not using existing VPC)
 module "vpc" {
+  count  = local.use_existing_vpc ? 0 : 1
   source = "./modules/vpc"
 
   project_name       = var.project_name
@@ -74,8 +95,8 @@ module "backend" {
 
   project_name       = var.project_name
   environment        = var.environment
-  vpc_id             = module.vpc.vpc_id
-  public_subnet_id   = module.vpc.public_subnet_ids[0]
+  vpc_id             = local.vpc_id
+  public_subnet_id   = local.public_subnet_ids[0]
   instance_type      = var.instance_type
   ssh_key_name       = var.ssh_key_name
   github_actions_ips = var.github_actions_ips

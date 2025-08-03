@@ -85,6 +85,7 @@ jobs:
           REGION=$(jq -r '.aws.region' config.json)
           ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
           INSTANCE_TYPE=$(jq -r ".infrastructure.instance_types.${ENVIRONMENT}" config.json)
+          VPC_ID=$(jq -r '.infrastructure.vpc_id // empty' config.json)
           
           # Validate that values were read correctly
           if [ "$PROJECT_NAME" = "null" ] || [ -z "$PROJECT_NAME" ]; then
@@ -97,6 +98,7 @@ jobs:
           echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
           echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
           echo "instance_type=${INSTANCE_TYPE}" >> $GITHUB_OUTPUT
+          echo "vpc_id=${VPC_ID}" >> $GITHUB_OUTPUT
 
       - name: Debug Setup Info
         run: |
@@ -281,6 +283,7 @@ jobs:
           REGION=$(jq -r '.aws.region' config.json)
           ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
           INSTANCE_TYPE=$(jq -r ".infrastructure.instance_types.${ENVIRONMENT}" config.json)
+          VPC_ID=$(jq -r '.infrastructure.vpc_id // empty' config.json)
           
           # Validate that values were read correctly
           if [ "$PROJECT_NAME" = "null" ] || [ -z "$PROJECT_NAME" ]; then
@@ -293,6 +296,7 @@ jobs:
           echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
           echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
           echo "instance_type=${INSTANCE_TYPE}" >> $GITHUB_OUTPUT
+          echo "vpc_id=${VPC_ID}" >> $GITHUB_OUTPUT
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -330,6 +334,11 @@ jobs:
             INSTANCE_TYPE="${{ steps.config.outputs.instance_type }}"
           fi
           
+          VPC_ID="${{ vars.VPC_ID }}"
+          if [ -z "$VPC_ID" ]; then
+            VPC_ID="${{ steps.config.outputs.vpc_id }}"
+          fi
+          
           # Set environment variables for Terraform
           echo "TF_VAR_project_name=$PROJECT_NAME" >> $GITHUB_ENV
           echo "TF_VAR_domain=$DOMAIN" >> $GITHUB_ENV
@@ -337,6 +346,7 @@ jobs:
           echo "TF_VAR_environment=${{ needs.determine-environment.outputs.environment }}" >> $GITHUB_ENV
           echo "TF_VAR_ssh_key_name=${PROJECT_NAME}-deploy-key" >> $GITHUB_ENV
           echo "TF_VAR_instance_type=$INSTANCE_TYPE" >> $GITHUB_ENV
+          echo "TF_VAR_vpc_id=$VPC_ID" >> $GITHUB_ENV
           echo "AWS_REGION_FOR_TERRAFORM=$AWS_REGION" >> $GITHUB_ENV
           echo "PROJECT_NAME_FOR_TERRAFORM=$PROJECT_NAME" >> $GITHUB_ENV
 
