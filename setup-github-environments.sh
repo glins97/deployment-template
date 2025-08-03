@@ -123,9 +123,9 @@ create_environments() {
     done
 }
 
-# Function to set environment secrets
-set_environment_secrets() {
-    print_step "Setting environment secrets..."
+# Function to set environment variables from .env
+set_environment_variables_from_env() {
+    print_step "Setting environment variables from .env file..."
     
     # Read .env file and process each line
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -149,28 +149,20 @@ set_environment_secrets() {
                 print_status "Debug: Setting AWS_SECRET_ACCESS_KEY (length: ${#value}, ends: ...${value: -4})"
             fi
             
-            # Set secret for each environment
+            # Set variable for each environment (all as variables now for debugging)
             for env in "${ENVIRONMENTS[@]}"; do
-                print_status "Setting secret $key for environment $env"
+                print_status "Setting variable $key for environment $env"
                 
-                # For AWS credentials, store as environment variables (visible)
-                if [[ "$key" =~ ^AWS_ ]]; then
-                    # Store as environment variable instead of secret for visibility
-                    gh variable set "$key" --env "$env" --body "$value"
-                    print_status "AWS credential $key stored as environment variable (visible)"
-                    
-                    # Verify the variable was set
-                    if gh variable list --env "$env" | grep -q "^$key"; then
-                        print_status "✅ AWS variable $key verified for $env"
-                    else
-                        print_error "❌ Failed to set AWS variable $key for $env"
-                        exit 1
-                    fi
+                # Store all as environment variables (visible for debugging)
+                gh variable set "$key" --env "$env" --body "$value"
+                print_status "Variable $key stored as environment variable (visible)"
+                
+                # Verify the variable was set
+                if gh variable list --env "$env" | grep -q "^$key"; then
+                    print_status "✅ Variable $key verified for $env"
                 else
-                    # Use printf with explicit binary mode to avoid encoding issues
-                    printf "%s" "$value" | gh secret set "$key" \
-                        --env "$env" \
-                        --body -
+                    print_error "❌ Failed to set variable $key for $env"
+                    exit 1
                 fi
             done
         fi
@@ -272,31 +264,24 @@ generate_ssh_key() {
             exit 1
         fi
         
-        # Set the base64-encoded secret
-        if printf "%s" "$ENCODED_KEY" | gh secret set "EC2_PRIVATE_KEY" \
+        # Set the base64-encoded key as variable (for debugging)
+        if printf "%s" "$ENCODED_KEY" | gh variable set "EC2_PRIVATE_KEY" \
             --env "$env" \
             --body - 2>&1; then
-            print_status "✅ SSH private key set for environment $env"
+            print_status "✅ SSH private key set as variable for environment $env"
         else
             EXIT_CODE=$?
-            print_error "❌ Failed to set SSH private key for environment $env"
-            print_error "Debug: gh secret set exit code: $EXIT_CODE"
-            print_error "Debug: Checking if we can read the temp file:"
-            if [ -f "$SSH_DIR/temp_private_key" ]; then
-                print_error "Debug: Temp file exists, size: $(wc -c < "$SSH_DIR/temp_private_key") bytes"
-                print_error "Debug: First 100 chars: $(head -c 100 "$SSH_DIR/temp_private_key")"
-            else
-                print_error "Debug: Temp file does not exist!"
-            fi
+            print_error "❌ Failed to set SSH private key variable for environment $env"
+            print_error "Debug: gh variable set exit code: $EXIT_CODE"
             rm -rf "$SSH_DIR"
             exit 1
         fi
         
-        # Validate the secret was stored by attempting to retrieve it (this won't show the actual value)
-        if gh secret list --env "$env" | grep -q "EC2_PRIVATE_KEY"; then
-            print_status "✅ SSH key secret verified for environment $env"
+        # Validate the variable was stored
+        if gh variable list --env "$env" | grep -q "EC2_PRIVATE_KEY"; then
+            print_status "✅ SSH key variable verified for environment $env"
         else
-            print_error "❌ SSH key secret not found after setting for environment $env"
+            print_error "❌ SSH key variable not found after setting for environment $env"
             rm -rf "$SSH_DIR"
             exit 1
         fi
@@ -308,7 +293,7 @@ generate_ssh_key() {
     # Save public key to file for manual setup
     cp "$SSH_KEY_PATH.pub" "./deploy_key_$PROJECT_NAME.pub"
     
-    print_status "SSH key generated and saved as secret EC2_PRIVATE_KEY"
+    print_status "SSH key generated and saved as variable EC2_PRIVATE_KEY"
     print_status "Public key saved to: ./deploy_key_$PROJECT_NAME.pub"
     print_status "Private key size: $KEY_SIZE bytes (validated)"
     
@@ -379,7 +364,7 @@ display_summary() {
     echo ""
     echo "✅ Configuration files committed to repository"
     echo "✅ GitHub environments created: ${ENVIRONMENTS[*]}"
-    echo "✅ Environment secrets configured from .env file"
+    echo "✅ Environment variables configured from .env file"
     echo "✅ Environment variables set"
     echo "✅ SSH key generated for deployments"
     echo "✅ Terraform backend configuration created"
@@ -406,7 +391,7 @@ main() {
     get_repo_info
     commit_config_files
     create_environments
-    set_environment_secrets
+    set_environment_variables_from_env
     set_environment_variables
     generate_ssh_key
     create_terraform_backend

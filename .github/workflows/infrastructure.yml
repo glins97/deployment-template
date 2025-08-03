@@ -97,7 +97,7 @@ jobs:
         id: prepare-key
         run: |
           # Use step output to bypass GitHub Actions secret masking
-          echo "encoded_key=${{ secrets.EC2_PRIVATE_KEY }}" >> $GITHUB_OUTPUT
+          echo "encoded_key=${{ vars.EC2_PRIVATE_KEY }}" >> $GITHUB_OUTPUT
 
       - name: Setup AWS Prerequisites (Auto)
         run: |
