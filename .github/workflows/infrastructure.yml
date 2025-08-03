@@ -77,11 +77,18 @@ jobs:
           echo "Environment: ${{ github.environment }}"
           echo "Region: ${{ vars.AWS_REGION }}"
 
+      - name: Decode AWS Credentials
+        run: |
+          echo "🔓 Decoding base64 AWS credentials..."
+          echo "AWS_ACCESS_KEY_ID=$(echo '${{ secrets.AWS_ACCESS_KEY_ID_B64 }}' | base64 -d)" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$(echo '${{ secrets.AWS_SECRET_ACCESS_KEY_B64 }}' | base64 -d)" >> $GITHUB_ENV
+          echo "✅ AWS credentials decoded successfully"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Setup AWS Prerequisites (Auto)

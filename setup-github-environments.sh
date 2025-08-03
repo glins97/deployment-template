@@ -153,10 +153,20 @@ set_environment_secrets() {
             for env in "${ENVIRONMENTS[@]}"; do
                 print_status "Setting secret $key for environment $env"
                 
-                # Use printf with explicit binary mode to avoid encoding issues
-                printf "%s" "$value" | gh secret set "$key" \
-                    --env "$env" \
-                    --body -
+                # For AWS credentials, use base64 encoding to avoid character encoding issues
+                if [[ "$key" =~ ^AWS_ ]]; then
+                    # Store base64 encoded version
+                    encoded_value=$(echo -n "$value" | base64)
+                    printf "%s" "$encoded_value" | gh secret set "${key}_B64" \
+                        --env "$env" \
+                        --body -
+                    print_status "AWS credential $key stored as base64 encoded ${key}_B64"
+                else
+                    # Use printf with explicit binary mode to avoid encoding issues
+                    printf "%s" "$value" | gh secret set "$key" \
+                        --env "$env" \
+                        --body -
+                fi
                 
                 # Verify the secret was set (only for AWS credentials to avoid spam)
                 if [[ "$key" =~ ^AWS_ ]]; then
