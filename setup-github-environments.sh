@@ -254,18 +254,13 @@ generate_ssh_key() {
     
     # Set private key as secret for all environments
     for env in "${ENVIRONMENTS[@]}"; do
-        # Write private key to temporary file to preserve newlines
-        printf "%s" "$PRIVATE_KEY" > "$SSH_DIR/temp_private_key"
+        # Base64 encode the private key to avoid multiline issues in GitHub secrets
+        ENCODED_KEY=$(printf "%s" "$PRIVATE_KEY" | base64)
         
-        # Verify the temp file has the correct size
-        TEMP_KEY_SIZE=$(wc -c < "$SSH_DIR/temp_private_key")
-        print_status "Debug: Temp key file size: $TEMP_KEY_SIZE bytes"
+        print_status "Debug: Encoded key length: ${#ENCODED_KEY} characters"
         
-        # Set secret from file to preserve formatting (pipe the file content)
-        print_status "Debug: About to set secret using cat + pipe"
-        
-        # Try the secret setting with verbose output
-        if cat "$SSH_DIR/temp_private_key" | gh secret set "EC2_PRIVATE_KEY" \
+        # Set the base64-encoded secret
+        if printf "%s" "$ENCODED_KEY" | gh secret set "EC2_PRIVATE_KEY" \
             --env "$env" \
             --body - 2>&1; then
             print_status "✅ SSH private key set for environment $env"

@@ -152,8 +152,8 @@ jobs:
           if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" 2>/dev/null; then
             echo "🚀 Creating EC2 Key Pair: $KEY_NAME"
             
-            # Write private key to file, preserving all line endings
-            echo "${{ secrets.EC2_PRIVATE_KEY }}" > /tmp/private_key.pem
+            # Decode base64-encoded private key and write to file
+            echo "${{ secrets.EC2_PRIVATE_KEY }}" | base64 -d > /tmp/private_key.pem
             chmod 600 /tmp/private_key.pem
             
             # Validate private key
