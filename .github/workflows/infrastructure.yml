@@ -30,9 +30,7 @@ on:
       - dev
 
 env:
-  TF_VAR_project_name: ${{ vars.PROJECT_NAME }}
-  TF_VAR_domain: ${{ vars.DOMAIN }}
-  TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+  # Global environment variables will be set by individual jobs with fallbacks
 
 jobs:
   determine-environment:
@@ -70,34 +68,59 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read project config
+        id: config
+        run: |
+          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          DOMAIN=$(jq -r '.project.domain' config.json)
+          REGION=$(jq -r '.aws.region' config.json)
+          ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
+          INSTANCE_TYPE=$(jq -r ".infrastructure.instance_types.${ENVIRONMENT}" config.json)
+          
+          echo "project_name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
+          echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
+          echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
+          echo "instance_type=${INSTANCE_TYPE}" >> $GITHUB_OUTPUT
+
       - name: Debug Setup Info
         run: |
           echo "🔍 Setting up AWS infrastructure..."
-          echo "Project: ${{ vars.PROJECT_NAME }}"
+          echo "Project: ${{ vars.PROJECT_NAME || steps.config.outputs.project_name }}"
           echo "Environment: ${{ github.environment }}"
-          echo "Region: ${{ vars.AWS_REGION }}"
+          echo "Region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}
 
       - name: Setup AWS Prerequisites (Auto)
         run: |
+          # Determine values with fallbacks
+          PROJECT_NAME="${{ vars.PROJECT_NAME }}"
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME="${{ steps.config.outputs.project_name }}"
+          fi
+          
+          AWS_REGION="${{ vars.AWS_REGION }}"
+          if [ -z "$AWS_REGION" ]; then
+            AWS_REGION="${{ steps.config.outputs.aws_region }}"
+          fi
+          
           # Create S3 bucket for Terraform state
-          BUCKET_NAME="${{ vars.PROJECT_NAME }}-terraform-state"
+          BUCKET_NAME="${PROJECT_NAME}-terraform-state"
           
           if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
             echo "🚀 Creating S3 bucket: $BUCKET_NAME"
             
-            if [ "${{ vars.AWS_REGION }}" = "us-east-1" ]; then
+            if [ "$AWS_REGION" = "us-east-1" ]; then
               aws s3api create-bucket --bucket "$BUCKET_NAME"
             else
               aws s3api create-bucket \
                 --bucket "$BUCKET_NAME" \
-                --create-bucket-configuration LocationConstraint=${{ vars.AWS_REGION }}
+                --create-bucket-configuration LocationConstraint=$AWS_REGION
             fi
             
             aws s3api put-bucket-versioning \
@@ -112,7 +135,7 @@ jobs:
           fi
           
           # Create DynamoDB table for Terraform locks
-          TABLE_NAME="${{ vars.PROJECT_NAME }}-terraform-locks"
+          TABLE_NAME="${PROJECT_NAME}-terraform-locks"
           
           if ! aws dynamodb describe-table --table-name "$TABLE_NAME" 2>/dev/null; then
             echo "🚀 Creating DynamoDB table: $TABLE_NAME"
@@ -127,7 +150,7 @@ jobs:
           fi
           
           # Create/Import EC2 Key Pair
-          KEY_NAME="${{ vars.PROJECT_NAME }}-deploy-key"
+          KEY_NAME="${PROJECT_NAME}-deploy-key"
           
           if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" 2>/dev/null; then
             echo "🚀 Creating EC2 Key Pair: $KEY_NAME"
@@ -154,7 +177,7 @@ jobs:
             else
               echo "❌ Private key is invalid, trying to regenerate..."
               # Generate a new key pair directly on the runner
-              ssh-keygen -t rsa -b 4096 -f /tmp/private_key.pem -N "" -C "github-actions-${{ vars.PROJECT_NAME }}"
+              ssh-keygen -t rsa -b 4096 -f /tmp/private_key.pem -N "" -C "github-actions-${PROJECT_NAME}"
               
               aws ec2 import-key-pair \
                 --key-name "$KEY_NAME" \
@@ -177,6 +200,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read project config
+        id: config
+        run: |
+          PROJECT_NAME=$(jq -r '.project.name' config.json)
+          DOMAIN=$(jq -r '.project.domain' config.json)
+          REGION=$(jq -r '.aws.region' config.json)
+          ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
+          INSTANCE_TYPE=$(jq -r ".infrastructure.instance_types.${ENVIRONMENT}" config.json)
+          
+          echo "project_name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
+          echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
+          echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
+          echo "instance_type=${INSTANCE_TYPE}" >> $GITHUB_OUTPUT
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -188,21 +225,48 @@ jobs:
         with:
           aws-access-key-id: ${{ vars.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}
 
       - name: Set Terraform variables
         run: |
+          # Set fallback values
+          PROJECT_NAME="${{ vars.PROJECT_NAME }}"
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME="${{ steps.config.outputs.project_name }}"
+          fi
+          
+          DOMAIN="${{ vars.DOMAIN }}"
+          if [ -z "$DOMAIN" ]; then
+            DOMAIN="${{ steps.config.outputs.domain }}"
+          fi
+          
+          AWS_REGION="${{ vars.AWS_REGION }}"
+          if [ -z "$AWS_REGION" ]; then
+            AWS_REGION="${{ steps.config.outputs.aws_region }}"
+          fi
+          
+          INSTANCE_TYPE="${{ vars.INSTANCE_TYPE }}"
+          if [ -z "$INSTANCE_TYPE" ]; then
+            INSTANCE_TYPE="${{ steps.config.outputs.instance_type }}"
+          fi
+          
+          # Set environment variables for Terraform
+          echo "TF_VAR_project_name=$PROJECT_NAME" >> $GITHUB_ENV
+          echo "TF_VAR_domain=$DOMAIN" >> $GITHUB_ENV
+          echo "TF_VAR_aws_region=$AWS_REGION" >> $GITHUB_ENV
           echo "TF_VAR_environment=${{ needs.determine-environment.outputs.environment }}" >> $GITHUB_ENV
-          echo "TF_VAR_ssh_key_name=${{ vars.PROJECT_NAME }}-deploy-key" >> $GITHUB_ENV
-          echo "TF_VAR_instance_type=${{ vars.INSTANCE_TYPE }}" >> $GITHUB_ENV
+          echo "TF_VAR_ssh_key_name=${PROJECT_NAME}-deploy-key" >> $GITHUB_ENV
+          echo "TF_VAR_instance_type=$INSTANCE_TYPE" >> $GITHUB_ENV
+          echo "AWS_REGION_FOR_TERRAFORM=$AWS_REGION" >> $GITHUB_ENV
+          echo "PROJECT_NAME_FOR_TERRAFORM=$PROJECT_NAME" >> $GITHUB_ENV
 
       - name: Terraform Init
         run: |
           terraform init \
-            -backend-config="bucket=${{ vars.PROJECT_NAME }}-terraform-state" \
+            -backend-config="bucket=${PROJECT_NAME_FOR_TERRAFORM}-terraform-state" \
             -backend-config="key=${{ needs.determine-environment.outputs.environment }}/terraform.tfstate" \
-            -backend-config="region=${{ vars.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ vars.PROJECT_NAME }}-terraform-locks"
+            -backend-config="region=$AWS_REGION_FOR_TERRAFORM" \
+            -backend-config="dynamodb_table=${PROJECT_NAME_FOR_TERRAFORM}-terraform-locks"
 
       - name: Terraform Workspace
         run: |
