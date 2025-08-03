@@ -94,6 +94,8 @@ jobs:
           aws-region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}
 
       - name: Setup AWS Prerequisites (Auto)
+        env:
+          EC2_PRIVATE_KEY_SECRET: ${{ secrets.EC2_PRIVATE_KEY }}
         run: |
           # Determine values with fallbacks
           PROJECT_NAME="${{ vars.PROJECT_NAME }}"
@@ -152,19 +154,15 @@ jobs:
           if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" 2>/dev/null; then
             echo "🚀 Creating EC2 Key Pair: $KEY_NAME"
             
-            # Use environment variable approach to avoid GitHub Actions secret masking
-            # Write base64-encoded secret to environment variable
-            SECRET_B64="${{ secrets.EC2_PRIVATE_KEY }}"
-            
-            # Decode base64-encoded private key
+            # Decode base64-encoded private key using base64 command directly
             echo "Debug: Attempting to decode base64 private key..."
-            if printf '%s' "$SECRET_B64" | base64 -d > /tmp/private_key.pem 2>/tmp/base64_error.log; then
+            if echo "$EC2_PRIVATE_KEY_SECRET" | base64 -d > /tmp/private_key.pem 2>/tmp/base64_error.log; then
               echo "✅ Base64 decode successful"
             else
               echo "❌ Base64 decode failed:"
               cat /tmp/base64_error.log
-              echo "Debug: SECRET_B64 length: ${#SECRET_B64}"
-              echo "Debug: First 50 chars: ${SECRET_B64:0:50}"
+              echo "Debug: SECRET length: ${#EC2_PRIVATE_KEY_SECRET} characters"
+              echo "Debug: First 50 chars: ${EC2_PRIVATE_KEY_SECRET:0:50}"
               exit 1
             fi
             
