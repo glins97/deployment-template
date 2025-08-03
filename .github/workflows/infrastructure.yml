@@ -68,11 +68,30 @@ jobs:
       - name: Read project config
         id: config
         run: |
+          # Check if config.json exists
+          if [ ! -f "config.json" ]; then
+            echo "❌ config.json not found in repository root"
+            echo "Available files in repository root:"
+            ls -la
+            echo ""
+            echo "Please ensure the setup script (setup-github-environments.sh) has been run"
+            echo "and that config.json has been committed to the repository."
+            exit 1
+          fi
+          
+          # Read configuration values
           PROJECT_NAME=$(jq -r '.project.name' config.json)
           DOMAIN=$(jq -r '.project.domain' config.json)
           REGION=$(jq -r '.aws.region' config.json)
           ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
           INSTANCE_TYPE=$(jq -r ".infrastructure.instance_types.${ENVIRONMENT}" config.json)
+          
+          # Validate that values were read correctly
+          if [ "$PROJECT_NAME" = "null" ] || [ -z "$PROJECT_NAME" ]; then
+            echo "❌ Failed to read project.name from config.json"
+            cat config.json
+            exit 1
+          fi
           
           echo "project_name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
           echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
@@ -242,11 +261,33 @@ jobs:
       - name: Read project config
         id: config
         run: |
+          # The working directory is terraform/, so we need to go up one level
+          cd ..
+          
+          # Check if config.json exists
+          if [ ! -f "config.json" ]; then
+            echo "❌ config.json not found in repository root"
+            echo "Available files in repository root:"
+            ls -la
+            echo ""
+            echo "Please ensure the setup script (setup-github-environments.sh) has been run"
+            echo "and that config.json has been committed to the repository."
+            exit 1
+          fi
+          
+          # Read configuration values
           PROJECT_NAME=$(jq -r '.project.name' config.json)
           DOMAIN=$(jq -r '.project.domain' config.json)
           REGION=$(jq -r '.aws.region' config.json)
           ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
           INSTANCE_TYPE=$(jq -r ".infrastructure.instance_types.${ENVIRONMENT}" config.json)
+          
+          # Validate that values were read correctly
+          if [ "$PROJECT_NAME" = "null" ] || [ -z "$PROJECT_NAME" ]; then
+            echo "❌ Failed to read project.name from config.json"
+            cat config.json
+            exit 1
+          fi
           
           echo "project_name=${PROJECT_NAME}" >> $GITHUB_OUTPUT
           echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
