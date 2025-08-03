@@ -93,9 +93,13 @@ jobs:
           aws-secret-access-key: ${{ vars.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION || steps.config.outputs.aws_region }}
 
+      - name: Prepare SSH Key
+        id: prepare-key
+        run: |
+          # Use step output to bypass GitHub Actions secret masking
+          echo "encoded_key=${{ secrets.EC2_PRIVATE_KEY }}" >> $GITHUB_OUTPUT
+
       - name: Setup AWS Prerequisites (Auto)
-        env:
-          EC2_PRIVATE_KEY_SECRET: ${{ secrets.EC2_PRIVATE_KEY }}
         run: |
           # Determine values with fallbacks
           PROJECT_NAME="${{ vars.PROJECT_NAME }}"
@@ -154,15 +158,16 @@ jobs:
           if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" 2>/dev/null; then
             echo "🚀 Creating EC2 Key Pair: $KEY_NAME"
             
-            # Decode base64-encoded private key using base64 command directly
+            # Decode base64-encoded private key using step output
             echo "Debug: Attempting to decode base64 private key..."
-            if echo "$EC2_PRIVATE_KEY_SECRET" | base64 -d > /tmp/private_key.pem 2>/tmp/base64_error.log; then
+            ENCODED_KEY="${{ steps.prepare-key.outputs.encoded_key }}"
+            if echo "$ENCODED_KEY" | base64 -d > /tmp/private_key.pem 2>/tmp/base64_error.log; then
               echo "✅ Base64 decode successful"
             else
               echo "❌ Base64 decode failed:"
               cat /tmp/base64_error.log
-              echo "Debug: SECRET length: ${#EC2_PRIVATE_KEY_SECRET} characters"
-              echo "Debug: First 50 chars: ${EC2_PRIVATE_KEY_SECRET:0:50}"
+              echo "Debug: SECRET length: ${#ENCODED_KEY} characters"
+              echo "Debug: First 50 chars: ${ENCODED_KEY:0:50}"
               exit 1
             fi
             

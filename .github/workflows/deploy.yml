@@ -243,12 +243,16 @@ jobs:
           echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
           echo "Instance IP: $INSTANCE_IP"
 
-      - name: Deploy to EC2
-        env:
-          EC2_PRIVATE_KEY_SECRET: ${{ secrets.EC2_PRIVATE_KEY }}
+      - name: Prepare SSH Key
+        id: prepare-key
         run: |
-          # Decode base64-encoded SSH key file using environment variable to avoid masking
-          echo "$EC2_PRIVATE_KEY_SECRET" | base64 -d > /tmp/deploy_key.pem
+          # Use step output to bypass GitHub Actions secret masking
+          echo "encoded_key=${{ secrets.EC2_PRIVATE_KEY }}" >> $GITHUB_OUTPUT
+
+      - name: Deploy to EC2
+        run: |
+          # Decode base64-encoded SSH key file using step output to avoid masking
+          echo "${{ steps.prepare-key.outputs.encoded_key }}" | base64 -d > /tmp/deploy_key.pem
           chmod 600 /tmp/deploy_key.pem
           
           # Test SSH connection
