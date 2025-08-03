@@ -85,6 +85,9 @@ jobs:
           export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
           export AWS_DEFAULT_REGION="${{ vars.AWS_REGION }}"
           
+          echo "Debug: Region set to: $AWS_DEFAULT_REGION"
+          echo "Debug: AWS CLI version: $(aws --version)"
+          
           # Test AWS credentials directly
           aws sts get-caller-identity
           

@@ -153,8 +153,8 @@ set_environment_secrets() {
             for env in "${ENVIRONMENTS[@]}"; do
                 print_status "Setting secret $key for environment $env"
                 
-                # Use printf to avoid potential newline issues
-                printf "%s" "$value" | gh secret set "$key" \
+                # Use echo -n to avoid newlines and ensure clean base64 encoding
+                echo -n "$value" | gh secret set "$key" \
                     --env "$env" \
                     --body -
                 
