@@ -254,6 +254,43 @@ generate_ssh_key() {
     rm -rf "$SSH_DIR"
 }
 
+# Function to commit configuration files to repository
+commit_config_files() {
+    print_step "Committing configuration files to repository..."
+    
+    # Check if config.json is committed
+    if ! git ls-files --error-unmatch config.json &> /dev/null; then
+        print_status "Adding config.json to repository..."
+        git add config.json
+        git commit -m "Add project configuration file
+
+This commit adds the configured config.json file with actual project settings
+instead of the example values. This ensures GitHub Actions workflows can
+read the proper configuration values for AWS region and other settings.
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+        print_status "config.json committed to repository"
+    else
+        print_status "config.json already tracked in repository"
+    fi
+    
+    # Note: .env should NOT be committed as it contains secrets
+    # Verify .env is in .gitignore
+    if ! grep -q "^\.env$" .gitignore 2>/dev/null; then
+        print_warning ".env file should be added to .gitignore to prevent committing secrets"
+        echo ".env" >> .gitignore
+        git add .gitignore
+        git commit -m "Add .env to .gitignore to prevent committing secrets
+
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+        print_status ".env added to .gitignore"
+    fi
+}
+
 # Function to create terraform backend configuration
 create_terraform_backend() {
     print_step "Creating Terraform backend configuration..."
@@ -278,6 +315,7 @@ display_summary() {
     print_step "Setup Summary"
     
     echo ""
+    echo "✅ Configuration files committed to repository"
     echo "✅ GitHub environments created: ${ENVIRONMENTS[*]}"
     echo "✅ Environment secrets configured from .env file"
     echo "✅ Environment variables set"
@@ -304,6 +342,7 @@ main() {
     check_prerequisites
     load_config
     get_repo_info
+    commit_config_files
     create_environments
     set_environment_secrets
     set_environment_variables
