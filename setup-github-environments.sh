@@ -265,14 +265,14 @@ generate_ssh_key() {
         fi
         
         # Set the base64-encoded key as variable (for debugging)
-        if printf "%s" "$ENCODED_KEY" | gh variable set "EC2_PRIVATE_KEY" \
-            --env "$env" \
-            --body - 2>&1; then
+        if gh variable set "EC2_PRIVATE_KEY" --env "$env" --body "$ENCODED_KEY" 2>&1; then
             print_status "✅ SSH private key set as variable for environment $env"
         else
             EXIT_CODE=$?
             print_error "❌ Failed to set SSH private key variable for environment $env"
             print_error "Debug: gh variable set exit code: $EXIT_CODE"
+            print_error "Debug: ENCODED_KEY length: ${#ENCODED_KEY}"
+            print_error "Debug: First 100 chars of ENCODED_KEY: ${ENCODED_KEY:0:100}"
             rm -rf "$SSH_DIR"
             exit 1
         fi
