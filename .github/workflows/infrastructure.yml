@@ -29,9 +29,6 @@ on:
       - hml
       - dev
 
-env:
-  # Global environment variables will be set by individual jobs with fallbacks
-
 jobs:
   determine-environment:
     runs-on: ubuntu-latest
