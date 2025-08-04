@@ -85,7 +85,7 @@ jobs:
           REGION=$(jq -r '.aws.region' config.json)
           ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
           INSTANCE_TYPE=$(jq -r ".infrastructure.instance_types.${ENVIRONMENT}" config.json)
-          VPC_ID=$(jq -r '.infrastructure.vpc_id // empty' config.json)
+          VPC_ID=$(jq -r '.infrastructure.vpc_id // null' config.json)
           
           # Validate that values were read correctly
           if [ "$PROJECT_NAME" = "null" ] || [ -z "$PROJECT_NAME" ]; then
@@ -283,7 +283,7 @@ jobs:
           REGION=$(jq -r '.aws.region' config.json)
           ENVIRONMENT="${{ needs.determine-environment.outputs.environment }}"
           INSTANCE_TYPE=$(jq -r ".infrastructure.instance_types.${ENVIRONMENT}" config.json)
-          VPC_ID=$(jq -r '.infrastructure.vpc_id // empty' config.json)
+          VPC_ID=$(jq -r '.infrastructure.vpc_id // null' config.json)
           
           # Validate that values were read correctly
           if [ "$PROJECT_NAME" = "null" ] || [ -z "$PROJECT_NAME" ]; then
@@ -297,6 +297,12 @@ jobs:
           echo "aws_region=${REGION}" >> $GITHUB_OUTPUT
           echo "instance_type=${INSTANCE_TYPE}" >> $GITHUB_OUTPUT
           echo "vpc_id=${VPC_ID}" >> $GITHUB_OUTPUT
+          
+          # Debug output
+          echo "🔍 Configuration values:"
+          echo "  VPC ID: '$VPC_ID'"
+          echo "  Project: '$PROJECT_NAME'"
+          echo "  Environment: '$ENVIRONMENT'"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

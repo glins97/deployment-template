@@ -27,16 +27,20 @@ data "aws_route53_zone" "main" {
 
 # Data source for existing VPC (when using existing VPC)
 data "aws_vpc" "existing" {
-  count = var.vpc_id != null ? 1 : 0
+  count = var.vpc_id != null && var.vpc_id != "" && var.vpc_id != "null" ? 1 : 0
   id    = var.vpc_id
 }
 
 # Data source for existing subnets (when using existing VPC)
 data "aws_subnets" "existing" {
-  count = var.vpc_id != null ? 1 : 0
+  count = var.vpc_id != null && var.vpc_id != "" && var.vpc_id != "null" ? 1 : 0
   filter {
     name   = "vpc-id"
     values = [var.vpc_id]
+  }
+  filter {
+    name   = "state"
+    values = ["available"]
   }
 }
 
@@ -54,7 +58,7 @@ locals {
   api_domain      = var.environment == "prd" ? var.domain : "${var.environment}.${var.domain}"
 
   # VPC configuration - use existing or new VPC
-  use_existing_vpc  = var.vpc_id != null
+  use_existing_vpc  = var.vpc_id != null && var.vpc_id != "" && var.vpc_id != "null"
   vpc_id            = local.use_existing_vpc ? var.vpc_id : module.vpc[0].vpc_id
   public_subnet_ids = local.use_existing_vpc ? data.aws_subnets.existing[0].ids : module.vpc[0].public_subnet_ids
 
