@@ -23,3 +23,8 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "backend_instance_ip" {
+  description = "Public IP address of the backend EC2 instance"
+  type        = string
+}
