@@ -31,6 +31,16 @@ data "aws_vpc" "existing" {
   id    = var.vpc_id
 }
 
+# Data source to get availability zones that support the instance type
+data "aws_ec2_instance_type_offerings" "available" {
+  count = var.vpc_id != null && var.vpc_id != "" && var.vpc_id != "null" ? 1 : 0
+  filter {
+    name   = "instance-type"
+    values = [var.instance_type]
+  }
+  location_type = "availability-zone"
+}
+
 # Data source for existing subnets (when using existing VPC)
 data "aws_subnets" "existing" {
   count = var.vpc_id != null && var.vpc_id != "" && var.vpc_id != "null" ? 1 : 0
@@ -41,6 +51,10 @@ data "aws_subnets" "existing" {
   filter {
     name   = "state"
     values = ["available"]
+  }
+  filter {
+    name   = "availability-zone"
+    values = local.use_existing_vpc ? data.aws_ec2_instance_type_offerings.available[0].locations : var.availability_zones
   }
 }
 
