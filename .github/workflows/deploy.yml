@@ -334,7 +334,7 @@ jobs:
             sudo docker-compose logs --tail=20 backend
             
             echo "Testing backend health..."
-            curl -f http://localhost:8000/health/ || echo "Health check failed"
+            curl -f http://localhost:8000/api/health/ || echo "Health check failed"
             
             echo "Restarting nginx..."
             sudo systemctl restart nginx

@@ -181,17 +181,19 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl     = 86400
   }
 
-  # Custom error responses
+  # Custom error responses (only for frontend, not API)
   custom_error_response {
     error_code         = 404
     response_code      = 200
     response_page_path = "/index.html"
+    error_caching_min_ttl = 10
   }
 
   custom_error_response {
     error_code         = 403
     response_code      = 200
-    response_page_path = "/index.html"
+    response_page_path = "/index.html" 
+    error_caching_min_ttl = 10
   }
 
   # Geographic restrictions
