@@ -22,3 +22,8 @@ output "elastic_ip" {
   description = "Elastic IP address"
   value       = aws_eip.backend.public_ip
 }
+
+output "instance_public_dns" {
+  description = "Public DNS name of the EC2 instance"
+  value       = aws_instance.backend.public_dns
+}

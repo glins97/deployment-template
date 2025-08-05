@@ -128,7 +128,7 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   # EC2 Origin (Backend API)
   origin {
-    domain_name = var.backend_instance_ip
+    domain_name = var.backend_instance_dns
     origin_id   = "EC2-Backend"
     
     custom_origin_config {

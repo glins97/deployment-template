@@ -99,11 +99,11 @@ module "vpc" {
 module "frontend" {
   source = "./modules/frontend"
 
-  project_name        = var.project_name
-  environment         = var.environment
-  domain              = local.frontend_domain
-  hosted_zone_id      = data.aws_route53_zone.main.zone_id
-  backend_instance_ip = module.backend.instance_public_ip
+  project_name         = var.project_name
+  environment          = var.environment
+  domain               = local.frontend_domain
+  hosted_zone_id       = data.aws_route53_zone.main.zone_id
+  backend_instance_dns = module.backend.instance_public_dns
 
   tags = local.common_tags
 }
